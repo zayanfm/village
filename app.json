@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "UniGarden",
+    "slug": "unigarden",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "backgroundColor": "#06140F",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "edgeToEdgeEnabled": true
+    }
+  }
+}
