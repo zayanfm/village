@@ -15,9 +15,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 
-// --- Worker/volunteer app (default). Re-enable this line to restore it. ---
-// import RootNavigator from './src/navigation/RootNavigator';
-// --- TEMP: youth-portal preview. Swap back to RootNavigator when done. ---
+// Worker / volunteer app (default boot target — the synced 3D village + portal).
+import RootNavigator from './src/navigation/RootNavigator';
+// Youth-portal preview: swap <RootNavigator /> for <YouthNavigator /> below.
 import YouthNavigator from './src/navigation/YouthNavigator';
 import { VolatileTranscriptProvider } from './src/context/VolatileTranscriptContext';
 import { palette } from './src/theme/theme';
@@ -34,8 +34,8 @@ export default function App() {
         <VolatileTranscriptProvider>
           <NavigationContainer theme={navTheme}>
             <StatusBar style="light" />
-            {/* TEMP youth-portal preview — was <RootNavigator /> */}
-            <YouthNavigator />
+            {/* Default: worker side. For youth preview use: <YouthNavigator /> */}
+            <RootNavigator />
           </NavigationContainer>
         </VolatileTranscriptProvider>
       </SafeAreaProvider>

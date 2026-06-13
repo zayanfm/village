@@ -1,169 +1,132 @@
 /**
- * YouthExteriorEdit.js — The 3D House Exterior Customizer
+ * YouthExteriorEdit.js — Interactive Studio (Three.js-driven)
  *
- * Full-screen R3F view of a single customizable tiny house on a slowly rotating
- * turntable plot. A floating bottom menu (style buttons, color-theme buttons,
- * window-light slider) drives a local `youthHouseConfig` object in real time.
+ * Direct touch manipulation of three distinct procedural house archetypes:
+ *   - drag (1 finger)  -> spin the house 360°  (azimuth, unbounded)
+ *   - pinch (2 finger) -> zoom in/out          (radius, clamped)
+ *   - 2-finger drag    -> pan                   (target, clamped)
+ * Touch picking uses R3F's event system (THREE.Raycaster under the hood);
+ * camera math is a clamped spherical rig.
  *
- * Higgsfield note: the house is procedural R3F (runtime). Higgsfield can bake
- * clay/pastel PBR textures at design time to drop onto these materials later.
- *
- * "Apply Changes" springs a camera zoom-out, then navigates inside the house
- * (YouthRoomHome), carrying youthHouseConfig forward — the same template object
- * destined for the worker's map view.
+ * Expanded floating dock: house style · roof style/texture · color theme ·
+ * garden props · window light (intensity + emissive color). Everything binds to
+ * `youthHouseConfig` — the same template destined for the worker map.
  */
 
-import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, PanResponder } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Canvas, useFrame } from '@react-three/fiber';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { MotiView } from 'moti';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as THREE from 'three';
+import YouthHouseMesh from './YouthHouseMesh';
 import {
   COLOR_THEMES,
   COLOR_THEME_NAMES,
+  GARDEN_PROPS,
   HOUSE_STYLES,
+  ROOF_STYLES,
+  ROOF_STYLE_NAMES,
+  WINDOW_COLORS,
   defaultYouthHouseConfig,
   pastel,
   youthRadius as rad,
 } from './youthTheme';
 
-/* --------------------------- 3D: the customizable house --------------------- */
+// ---- camera bounds ----
+const R_MIN = 3.4;
+const R_MAX = 9;
+const POLAR_MIN = 0.25;
+const POLAR_MAX = 1.3;
+const PAN_MAX = 2;
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
-function Windows({ intensity, positions }) {
-  return positions.map((p, i) => (
-    <mesh key={i} position={p}>
-      <boxGeometry args={[0.26, 0.26, 0.04]} />
-      <meshStandardMaterial color="#FFF6D8" emissive={pastel.glow} emissiveIntensity={intensity} roughness={0.35} />
-    </mesh>
-  ));
-}
+// Collapsible dock heights (the bar stays tucked away by default).
+const DOCK_COLLAPSED = 70;
+const DOCK_EXPANDED = 340;
+const DOCK_BG = 'rgba(255,255,255,0.94)';
 
-function CottageMesh({ theme, intensity }) {
+/* House archetypes now live in the shared ./YouthHouseMesh — the worker village
+   imports the same component so it renders the youth's exact chosen design. */
+
+/* --------------------------- garden props ----------------------------------- */
+
+function GardenProps({ props, winColor, winI }) {
   return (
     <group>
-      <mesh castShadow receiveShadow position={[0, 0.5, 0]}>
-        <boxGeometry args={[1.4, 1.0, 1.4]} />
-        <meshStandardMaterial color={theme.wall} roughness={0.85} />
-      </mesh>
-      <mesh castShadow position={[0, 1.3, 0]} rotation={[0, Math.PI / 4, 0]}>
-        <coneGeometry args={[1.15, 0.7, 4]} />
-        <meshStandardMaterial color={theme.roof} roughness={0.7} />
-      </mesh>
-      <mesh position={[0, 0.35, 0.71]}>
-        <boxGeometry args={[0.32, 0.6, 0.04]} />
-        <meshStandardMaterial color={theme.accent} roughness={0.6} />
-      </mesh>
-      <Windows intensity={intensity} positions={[[0.42, 0.62, 0.71], [-0.42, 0.62, 0.71]]} />
-    </group>
-  );
-}
-
-function AFrameMesh({ theme, intensity }) {
-  return (
-    <group>
-      <mesh receiveShadow position={[0, 0.06, 0]}>
-        <boxGeometry args={[1.7, 0.12, 1.7]} />
-        <meshStandardMaterial color={theme.accent} roughness={0.9} />
-      </mesh>
-      {/* two slanted roof slabs forming the A */}
-      {[-1, 1].map((s) => (
-        <mesh key={s} castShadow position={[s * 0.42, 0.95, 0]} rotation={[0, 0, s * 0.62]}>
-          <boxGeometry args={[0.12, 2.0, 1.7]} />
-          <meshStandardMaterial color={theme.roof} roughness={0.7} />
+      {props.flowers &&
+        [[-1.3, 0, 0.6], [1.25, 0, 0.9], [-0.9, 0, -1.2]].map((pos, i) => (
+          <group key={`f${i}`} position={pos}>
+            <mesh position={[0, 0.12, 0]}>
+              <cylinderGeometry args={[0.02, 0.02, 0.24, 6]} />
+              <meshStandardMaterial color={'#4F7B3A'} />
+            </mesh>
+            <mesh position={[0, 0.28, 0]}>
+              <sphereGeometry args={[0.08, 12, 12]} />
+              <meshStandardMaterial color={i % 2 ? pastel.blush : pastel.lavenderDeep} roughness={1} />
+            </mesh>
+          </group>
+        ))}
+      {props.lamps &&
+        [[1.4, 0, -0.6], [-1.4, 0, 0.0]].map((pos, i) => (
+          <group key={`l${i}`} position={pos}>
+            <mesh castShadow position={[0, 0.3, 0]}>
+              <cylinderGeometry args={[0.06, 0.08, 0.6, 8]} />
+              <meshStandardMaterial color={'#8A8276'} roughness={1} />
+            </mesh>
+            <mesh position={[0, 0.66, 0]}>
+              <sphereGeometry args={[0.12, 16, 16]} />
+              <meshStandardMaterial color={'#FFF6D8'} emissive={winColor} emissiveIntensity={Math.max(winI, 0.7)} />
+            </mesh>
+            <pointLight position={[0, 0.66, 0]} intensity={6} distance={3} decay={2} color={winColor} />
+          </group>
+        ))}
+      {props.pond && (
+        <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[1.15, 0.02, 0.9]}>
+          <circleGeometry args={[0.5, 32]} />
+          <meshStandardMaterial color={'#7EC8E3'} metalness={0.4} roughness={0.15} transparent opacity={0.85} />
         </mesh>
-      ))}
-      {/* front gable infill */}
-      <mesh position={[0, 0.85, -0.84]} rotation={[0, 0, Math.PI / 4]}>
-        <boxGeometry args={[1.1, 1.1, 0.06]} />
-        <meshStandardMaterial color={theme.wall} roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.45, 0.85]}>
-        <boxGeometry args={[0.34, 0.7, 0.04]} />
-        <meshStandardMaterial color={theme.accent} roughness={0.6} />
-      </mesh>
-      <Windows intensity={intensity} positions={[[0, 1.05, 0.86]]} />
+      )}
     </group>
   );
 }
 
-function CyberGlassMesh({ theme, intensity }) {
+/* --------------------------- plot + camera ---------------------------------- */
+
+function Plot({ config }) {
   return (
     <group>
-      <mesh receiveShadow position={[0, 0.05, 0]}>
-        <boxGeometry args={[1.5, 0.1, 1.5]} />
-        <meshStandardMaterial color={theme.accent} metalness={0.3} roughness={0.4} />
-      </mesh>
-      {/* glowing core (the "window lighting") */}
-      <mesh position={[0, 0.75, 0]}>
-        <boxGeometry args={[0.7, 1.1, 0.7]} />
-        <meshStandardMaterial color={pastel.glow} emissive={pastel.glow} emissiveIntensity={intensity} />
-      </mesh>
-      {/* translucent glass shell */}
-      <mesh castShadow position={[0, 0.8, 0]}>
-        <boxGeometry args={[1.3, 1.5, 1.3]} />
-        <meshStandardMaterial
-          color={theme.wall}
-          transparent
-          opacity={0.42}
-          metalness={0.6}
-          roughness={0.1}
-        />
-      </mesh>
-      {/* frame edges */}
-      <lineSegments position={[0, 0.8, 0]}>
-        <edgesGeometry args={[new THREE.BoxGeometry(1.3, 1.5, 1.3)]} />
-        <lineBasicMaterial color={theme.roof} />
-      </lineSegments>
-    </group>
-  );
-}
-
-function YouthHouse({ config }) {
-  const theme = COLOR_THEMES[config.colorTheme] ?? COLOR_THEMES['Pastel Mint'];
-  const i = config.windowIntensity;
-  if (config.houseStyle === 'aframe') return <AFrameMesh theme={theme} intensity={i} />;
-  if (config.houseStyle === 'cyberglass') return <CyberGlassMesh theme={theme} intensity={i} />;
-  return <CottageMesh theme={theme} intensity={i} />;
-}
-
-function Turntable({ config }) {
-  const spin = useRef();
-  useFrame((_, delta) => {
-    if (spin.current) spin.current.rotation.y += delta * 0.35;
-  });
-  return (
-    <group ref={spin}>
-      {/* plot */}
       <mesh receiveShadow position={[0, -0.05, 0]}>
-        <cylinderGeometry args={[1.7, 1.8, 0.18, 48]} />
+        <cylinderGeometry args={[2.0, 2.1, 0.18, 48]} />
         <meshStandardMaterial color={pastel.clay} roughness={0.9} />
       </mesh>
       <mesh receiveShadow position={[0, 0.045, 0]}>
-        <cylinderGeometry args={[1.55, 1.55, 0.04, 48]} />
+        <cylinderGeometry args={[1.9, 1.9, 0.04, 48]} />
         <meshStandardMaterial color={pastel.mint} roughness={1} />
       </mesh>
       <group position={[0, 0.07, 0]}>
-        <YouthHouse config={config} />
+        <YouthHouseMesh config={config} />
+        <GardenProps props={config.props} winColor={config.windowColor} winI={config.windowIntensity} />
       </group>
     </group>
   );
 }
 
-/** Camera that idles at a cozy angle and dollies out when `zooming` is set. */
 function CameraRig({ control, onZoomedOut }) {
   const done = useRef(false);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   useFrame(({ camera }) => {
-    const target = control.current.radius;
-    const cur = camera.position.length();
-    const next = cur + (target - cur) * 0.12;
-    tmp.set(0.6, 0.5, 1).normalize().multiplyScalar(next);
-    camera.position.copy(tmp);
-    camera.lookAt(0, 0.7, 0);
-    if (control.current.zooming && !done.current && Math.abs(next - target) < 0.4) {
+    const c = control.current;
+    const sp = Math.sin(c.polar);
+    const px = c.target.x + c.radius * sp * Math.sin(c.azimuth);
+    const py = c.radius * Math.cos(c.polar);
+    const pz = c.target.z + c.radius * sp * Math.cos(c.azimuth);
+    camera.position.lerp(tmp.set(px, py, pz), 0.18);
+    camera.lookAt(c.target.x, 0.7, c.target.z);
+
+    if (c.applying && !done.current && Math.abs(c.radius - c.applyTarget) < 0.4 && camera.position.length() > c.applyTarget - 1) {
       done.current = true;
       onZoomedOut && onZoomedOut();
     }
@@ -171,23 +134,15 @@ function CameraRig({ control, onZoomedOut }) {
   return null;
 }
 
-/* --------------------------- UI: pastel slider ------------------------------ */
+/* --------------------------- UI pieces -------------------------------------- */
 
 function PastelSlider({ value, onChange }) {
   const [w, setW] = useState(0);
   const progress = useSharedValue(value);
   progress.value = withSpring(value, { damping: 18, stiffness: 200 });
-
-  const thumb = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * Math.max(w - 26, 0) }],
-  }));
+  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * Math.max(w - 26, 0) }] }));
   const fill = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
-
-  const setFromX = (x) => {
-    if (w <= 0) return;
-    onChange(Math.min(Math.max(x / w, 0), 1));
-  };
-
+  const setFromX = (x) => w > 0 && onChange(clamp(x / w, 0, 1));
   return (
     <View
       style={styles.track}
@@ -214,188 +169,241 @@ function Chip({ label, active, onPress }) {
 /* --------------------------- Screen ----------------------------------------- */
 
 export default function YouthExteriorEdit({ navigation }) {
-  const [youthHouseConfig, setYouthHouseConfig] = useState(defaultYouthHouseConfig);
-  const control = useRef({ radius: 5.2, zooming: false });
+  const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
+  const [cfg, setCfg] = useState(defaultYouthHouseConfig);
+  const control = useRef({ target: { x: 0, z: 0 }, radius: 5, azimuth: 0, polar: 0.7, base: null, pinch: null, applying: false, applyTarget: 11 });
   const navigatedRef = useRef(false);
 
-  const patch = (p) => setYouthHouseConfig((prev) => ({ ...prev, ...p }));
+  // ---- collapsible dock ----
+  const dockH = useSharedValue(DOCK_COLLAPSED);
+  const expandedRef = useRef(false);
+  const dragBase = useRef(DOCK_COLLAPSED);
+  const dockStyle = useAnimatedStyle(() => ({ height: dockH.value }));
+  const setExpanded = (exp) => {
+    expandedRef.current = exp;
+    dockH.value = withTiming(exp ? DOCK_EXPANDED : DOCK_COLLAPSED, { duration: 300 });
+  };
+  const toggleDock = () => setExpanded(!expandedRef.current);
+  const handleResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+        onPanResponderGrant: () => (dragBase.current = dockH.value),
+        onPanResponderMove: (_e, g) => (dockH.value = clamp(dragBase.current - g.dy, DOCK_COLLAPSED, DOCK_EXPANDED)),
+        onPanResponderRelease: () => setExpanded(dockH.value > (DOCK_COLLAPSED + DOCK_EXPANDED) / 2),
+        onPanResponderTerminate: () => setExpanded(dockH.value > (DOCK_COLLAPSED + DOCK_EXPANDED) / 2),
+      }),
+    []
+  );
+
+  const patch = (p) => setCfg((prev) => ({ ...prev, ...p }));
+  const toggleProp = (key) => setCfg((prev) => ({ ...prev, props: { ...prev.props, [key]: !prev.props[key] } }));
+
+  const responder = useMemo(() => {
+    const shouldDrive = (e, g) => (e.nativeEvent.touches && e.nativeEvent.touches.length >= 2) || Math.hypot(g.dx, g.dy) > 5;
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: shouldDrive,
+      onMoveShouldSetPanResponderCapture: shouldDrive,
+      onPanResponderGrant: () => {
+        const c = control.current;
+        c.base = { azimuth: c.azimuth, polar: c.polar };
+        c.pinch = null;
+      },
+      onPanResponderMove: (e, g) => {
+        const c = control.current;
+        const touches = e.nativeEvent.touches || [];
+        if (touches.length >= 2) {
+          const a = touches[0];
+          const b = touches[1];
+          const dist = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+          const mx = (a.pageX + b.pageX) / 2;
+          const my = (a.pageY + b.pageY) / 2;
+          if (!c.pinch) c.pinch = { dist, mx, my, radius: c.radius, tx: c.target.x, tz: c.target.z, az: c.azimuth };
+          else {
+            c.radius = clamp(c.pinch.radius * (c.pinch.dist / Math.max(dist, 1)), R_MIN, R_MAX);
+            const dmx = (mx - c.pinch.mx) * 0.01;
+            const dmy = (my - c.pinch.my) * 0.01;
+            const s = Math.sin(c.pinch.az);
+            const co = Math.cos(c.pinch.az);
+            c.target.x = clamp(c.pinch.tx - (dmx * co - dmy * s), -PAN_MAX, PAN_MAX);
+            c.target.z = clamp(c.pinch.tz - (dmx * s + dmy * co), -PAN_MAX, PAN_MAX);
+          }
+        } else {
+          c.pinch = null;
+          c.azimuth = c.base.azimuth - g.dx * 0.006;
+          c.polar = clamp(c.base.polar - g.dy * 0.005, POLAR_MIN, POLAR_MAX);
+        }
+      },
+      onPanResponderRelease: () => (control.current.pinch = null),
+      onPanResponderTerminate: () => (control.current.pinch = null),
+    });
+  }, []);
+
+  // Reset camera + nav state on (re)focus so the dolly never sticks zoomed-out
+  // and "Apply" works again after returning from the room.
+  useFocusEffect(
+    useCallback(() => {
+      const c = control.current;
+      c.applying = false;
+      c.radius = 5;
+      c.target = { x: 0, z: 0 };
+      c.azimuth = 0;
+      c.polar = 0.7;
+      navigatedRef.current = false;
+      return () => {};
+    }, [])
+  );
 
   const applyChanges = () => {
-    control.current.zooming = true;
-    control.current.radius = 11; // dolly out
+    control.current.applying = true;
+    control.current.radius = control.current.applyTarget; // dolly out
   };
-
   const goInside = () => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
-    navigation?.navigate('YouthRoomHome', { youthHouseConfig });
+    navigation?.navigate('YouthRoomHome', { youthHouseConfig: cfg });
   };
 
   return (
     <View style={styles.root}>
-      <Canvas
-        shadows
-        camera={{ position: [3.1, 2.6, 5.2], fov: 40 }}
-        gl={{ antialias: true }}
-        onCreated={({ gl }) => gl.setClearColor(pastel.sky, 1)}
-      >
-        <ambientLight intensity={0.7} />
-        <hemisphereLight args={['#ffffff', '#e8d6c2', 0.6]} />
-        <directionalLight
-          position={[4, 8, 4]}
-          intensity={1.3}
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-        />
-        <Turntable config={youthHouseConfig} />
-        <CameraRig control={control} onZoomedOut={goInside} />
-      </Canvas>
+      {/* Canvas wrapper is flex:1: when the dock height changes, this resizes
+          and R3F re-derives the camera aspect ratio so the house stays framed. */}
+      <View style={styles.canvasWrap} {...responder.panHandlers}>
+        {isFocused && (
+          <Canvas shadows camera={{ position: [3, 2.6, 5], fov: 42 }} onCreated={({ gl }) => gl.setClearColor(pastel.sky, 1)}>
+            <ambientLight intensity={0.7} />
+            <hemisphereLight args={['#ffffff', '#e8d6c2', 0.6]} />
+            <directionalLight position={[4, 8, 4]} intensity={1.2} castShadow shadow-mapSize-width={1024} shadow-mapSize-height={1024} />
+            <Plot config={cfg} />
+            <CameraRig control={control} onZoomedOut={goInside} />
+          </Canvas>
+        )}
 
-      <SafeAreaView style={styles.header} edges={['top']} pointerEvents="box-none">
-        <Text style={styles.kicker}>MY HOME</Text>
-        <Text style={styles.title}>Make it yours</Text>
-      </SafeAreaView>
+        <SafeAreaView style={styles.header} edges={['top']} pointerEvents="box-none">
+          <Text style={styles.kicker}>MY HOME · drag · pinch · pan</Text>
+          <Text style={styles.title}>Make it yours</Text>
+        </SafeAreaView>
+      </View>
 
-      {/* Floating parameter menu */}
-      <SafeAreaView style={styles.menuWrap} edges={['bottom']} pointerEvents="box-none">
-        <MotiView
-          from={{ opacity: 0, translateY: 30 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', damping: 18, stiffness: 180 }}
-          style={styles.menu}
-        >
-          <Text style={styles.menuLabel}>House style</Text>
-          <View style={styles.row}>
-            {HOUSE_STYLES.map((s) => (
-              <Chip
-                key={s.key}
-                label={s.label}
-                active={youthHouseConfig.houseStyle === s.key}
-                onPress={() => patch({ houseStyle: s.key })}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.menuLabel}>Color theme</Text>
-          <View style={styles.row}>
-            {COLOR_THEME_NAMES.map((name) => (
-              <Pressable
-                key={name}
-                onPress={() => patch({ colorTheme: name })}
-                style={[
-                  styles.swatch,
-                  { backgroundColor: COLOR_THEMES[name].wall },
-                  youthHouseConfig.colorTheme === name && styles.swatchActive,
-                ]}
-              >
-                <View style={[styles.swatchRoof, { backgroundColor: COLOR_THEMES[name].roof }]} />
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.sliderRow}>
-            <Text style={styles.menuLabel}>Window light</Text>
-            <Text style={styles.sliderVal}>{Math.round(youthHouseConfig.windowIntensity * 100)}%</Text>
-          </View>
-          <PastelSlider
-            value={youthHouseConfig.windowIntensity / 1.5}
-            onChange={(v) => patch({ windowIntensity: Number((v * 1.5).toFixed(2)) })}
-          />
-
-          <Pressable onPress={applyChanges} style={styles.applyWrap}>
-            <LinearGradient
-              colors={[pastel.mint, pastel.mintDeep]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.applyBtn}
-            >
-              <Text style={styles.applyText}>Apply Changes  →</Text>
+      {/* Collapsible dock — short by default, drag the handle or tap to expand */}
+      <Animated.View style={[styles.dock, dockStyle]}>
+        <View style={styles.handleZone} {...handleResponder.panHandlers}>
+          <Pressable onPress={toggleDock} hitSlop={14} style={styles.grabberTap}>
+            <View style={styles.grabber} />
+          </Pressable>
+          <Text style={styles.dockTitle}>Customize</Text>
+          <Pressable onPress={applyChanges} style={styles.applyMini}>
+            <LinearGradient colors={[pastel.mint, pastel.mintDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.applyMiniInner}>
+              <Text style={styles.applyMiniText}>Apply →</Text>
             </LinearGradient>
           </Pressable>
-        </MotiView>
-      </SafeAreaView>
+        </View>
+
+        <ScrollView style={styles.menuScroll} contentContainerStyle={styles.menuContent} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          <Text style={styles.menuLabel}>House style</Text>
+            <View style={styles.row}>
+              {HOUSE_STYLES.map((s) => (
+                <Chip key={s.key} label={s.label} active={cfg.houseStyle === s.key} onPress={() => patch({ houseStyle: s.key })} />
+              ))}
+            </View>
+
+            <Text style={styles.menuLabel}>Roof style</Text>
+            <View style={styles.row}>
+              {ROOF_STYLE_NAMES.map((name) => (
+                <Chip key={name} label={name} active={cfg.roofStyle === name} onPress={() => patch({ roofStyle: name })} />
+              ))}
+            </View>
+
+            <Text style={styles.menuLabel}>Color theme</Text>
+            <View style={styles.row}>
+              {COLOR_THEME_NAMES.map((name) => (
+                <Pressable
+                  key={name}
+                  onPress={() => patch({ colorTheme: name })}
+                  style={[styles.swatch, { backgroundColor: COLOR_THEMES[name].wall }, cfg.colorTheme === name && styles.swatchActive]}
+                >
+                  <View style={[styles.swatchRoof, { backgroundColor: COLOR_THEMES[name].roof }]} />
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.menuLabel}>Garden props</Text>
+            <View style={styles.row}>
+              {GARDEN_PROPS.map((p) => (
+                <Chip key={p.key} label={p.label} active={cfg.props[p.key]} onPress={() => toggleProp(p.key)} />
+              ))}
+            </View>
+
+            <View style={styles.sliderRow}>
+              <Text style={styles.menuLabel}>Window light</Text>
+              <Text style={styles.sliderVal}>{Math.round(cfg.windowIntensity * 100)}%</Text>
+            </View>
+            <PastelSlider value={cfg.windowIntensity / 1.5} onChange={(v) => patch({ windowIntensity: Number((v * 1.5).toFixed(2)) })} />
+
+            <Text style={styles.menuLabel}>Window color</Text>
+            <View style={styles.row}>
+              {WINDOW_COLORS.map((c) => (
+                <Pressable
+                  key={c}
+                  onPress={() => patch({ windowColor: c })}
+                  style={[styles.colorDot, { backgroundColor: c }, cfg.windowColor === c && styles.colorDotActive]}
+                />
+              ))}
+            </View>
+        </ScrollView>
+      </Animated.View>
+      {/* safe-area floor below the dock */}
+      <View style={{ height: insets.bottom, backgroundColor: DOCK_BG }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: pastel.sky },
+  canvasWrap: { flex: 1 },
   header: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 24, paddingTop: 16 },
-  kicker: { color: pastel.mintDeep, fontWeight: '800', fontSize: 12.5, letterSpacing: 1 },
+  kicker: { color: pastel.mintDeep, fontWeight: '800', fontSize: 12, letterSpacing: 0.6 },
   title: { color: pastel.ink, fontWeight: '900', fontSize: 28, marginTop: 2 },
 
-  menuWrap: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  menu: {
-    margin: 14,
-    padding: 18,
-    borderRadius: rad.xl,
-    backgroundColor: 'rgba(255,255,255,0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
+  dock: {
+    backgroundColor: DOCK_BG,
+    borderTopLeftRadius: rad.xl,
+    borderTopRightRadius: rad.xl,
+    overflow: 'hidden',
     shadowColor: '#7a6b5a',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 14,
   },
-  menuLabel: { color: pastel.sub, fontWeight: '800', fontSize: 12, letterSpacing: 0.4, marginBottom: 8 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  handleZone: { height: 56, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
+  grabberTap: { paddingVertical: 8, paddingRight: 12 },
+  grabber: { width: 44, height: 5, borderRadius: 3, backgroundColor: 'rgba(74,63,85,0.25)' },
+  dockTitle: { flex: 1, color: pastel.ink, fontWeight: '900', fontSize: 15 },
+  applyMini: { borderRadius: rad.pill, overflow: 'hidden' },
+  applyMiniInner: { paddingHorizontal: 18, paddingVertical: 9 },
+  applyMiniText: { color: pastel.ink, fontWeight: '900', fontSize: 13.5 },
+  menuScroll: { flex: 1 },
+  menuContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  menuLabel: { color: pastel.sub, fontWeight: '800', fontSize: 12, letterSpacing: 0.4, marginBottom: 8, marginTop: 6 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
 
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: rad.pill,
-    backgroundColor: pastel.cream,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-  },
+  chip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: rad.pill, backgroundColor: pastel.cream, borderWidth: 1.5, borderColor: 'transparent' },
   chipActive: { borderColor: pastel.mintDeep, backgroundColor: pastel.mint },
-  chipText: { color: pastel.sub, fontWeight: '700', fontSize: 13 },
+  chipText: { color: pastel.sub, fontWeight: '700', fontSize: 12.5 },
   chipTextActive: { color: pastel.ink },
 
-  swatch: {
-    width: 52,
-    height: 52,
-    borderRadius: rad.md,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 6,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    overflow: 'hidden',
-  },
+  swatch: { width: 50, height: 50, borderRadius: rad.md, alignItems: 'center', paddingTop: 6, borderWidth: 3, borderColor: 'transparent', overflow: 'hidden' },
   swatchActive: { borderColor: pastel.ink },
-  swatchRoof: { width: '80%', height: 14, borderRadius: 6 },
+  swatchRoof: { width: '80%', height: 13, borderRadius: 6 },
 
-  sliderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  colorDot: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, borderColor: 'rgba(0,0,0,0.08)' },
+  colorDotActive: { borderColor: pastel.ink },
+
+  sliderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   sliderVal: { color: pastel.ink, fontWeight: '800', fontSize: 12 },
-  track: {
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: pastel.cream,
-    justifyContent: 'center',
-    marginTop: 6,
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  trackFill: { position: 'absolute', left: 0, height: 26, backgroundColor: pastel.amber },
-  thumb: {
-    width: 24,
-    height: 24,
-    marginLeft: 1,
-    borderRadius: 12,
-    backgroundColor: pastel.white,
-    borderWidth: 2,
-    borderColor: pastel.amberDeep,
-  },
-
-  applyWrap: { marginTop: 2 },
-  applyBtn: {
-    height: 52,
-    borderRadius: rad.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  applyText: { color: pastel.ink, fontWeight: '900', fontSize: 16, letterSpacing: 0.3 },
+  track: { height: 24, borderRadius: 12, backgroundColor: pastel.cream, justifyContent: 'center', marginTop: 4, marginBottom: 6, overflow: 'hidden' },
+  trackFill: { position: 'absolute', left: 0, height: 24, backgroundColor: pastel.amber },
+  thumb: { width: 22, height: 22, marginLeft: 1, borderRadius: 11, backgroundColor: pastel.white, borderWidth: 2, borderColor: pastel.amberDeep },
 });

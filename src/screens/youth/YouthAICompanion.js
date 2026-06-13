@@ -1,16 +1,17 @@
 /**
- * YouthAICompanion.js — AI Companion Screen
+ * YouthAICompanion.js — Upgraded Characters
  *
- * Split view:
- *   - Top: a cute procedural 3D companion (head/body/eyes/cheeks) with a slow
- *     idle bob + breathe loop. (Higgsfield can bake a higher-fidelity character
- *     skin at design time; the runtime character is procedural R3F.)
- *   - Bottom: a rounded glassmorphic chat window with a mock thread and a custom
- *     input box. Replies are canned + ephemeral (local state only) — a sandbox
- *     for conversation micro-interactions, not a real model.
+ * Top viewport: two clay-shaded characters rendered side by side —
+ *   - AI Bot: a floating spherical robot with an emissive neon facial display
+ *     grid; hovers vertically + gently rotates.
+ *   - User Avatar: a charming low-poly Bondee-style figure with smooth meshes;
+ *     subtle breathing.
+ * Animations are layered and driven by the three.js clock (useFrame).
+ *
+ * Bottom: the clean glassmorphic chat overlay (unchanged sandbox behavior).
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -22,56 +23,74 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
+import OrbCompanion from './OrbCompanion';
 import { pastel, youthRadius as rad } from './youthTheme';
 
-function Companion() {
-  const body = useRef();
+/* --------------------------- User Avatar ------------------------------------ */
+
+function UserAvatar() {
+  const rig = useRef();
   useFrame(({ clock }) => {
-    if (!body.current) return;
     const t = clock.elapsedTime;
-    body.current.position.y = Math.sin(t * 1.6) * 0.06; // gentle bob
-    const breathe = 1 + Math.sin(t * 2.2) * 0.03; // breathing
-    body.current.scale.set(breathe, 1 / breathe, breathe);
+    if (rig.current) {
+      const breathe = 1 + Math.sin(t * 2.0) * 0.025;
+      rig.current.scale.set(breathe, 1 / breathe, breathe);
+      rig.current.position.y = -0.35 + Math.sin(t * 1.1) * 0.03;
+    }
   });
   return (
-    <group ref={body}>
+    <group ref={rig} position={[-1.05, -0.35, 0]}>
       {/* body */}
-      <mesh castShadow position={[0, -0.5, 0]}>
-        <capsuleGeometry args={[0.55, 0.5, 8, 24]} />
-        <meshStandardMaterial color={pastel.mint} roughness={0.85} />
+      <mesh castShadow position={[0, 0.05, 0]}>
+        <capsuleGeometry args={[0.42, 0.5, 10, 24]} />
+        <meshStandardMaterial color={pastel.lavenderDeep} roughness={0.9} />
       </mesh>
       {/* head */}
-      <mesh castShadow position={[0, 0.5, 0]}>
-        <sphereGeometry args={[0.62, 32, 32]} />
-        <meshStandardMaterial color={pastel.mint} roughness={0.85} />
+      <mesh castShadow position={[0, 0.78, 0]}>
+        <sphereGeometry args={[0.42, 32, 32]} />
+        <meshStandardMaterial color={pastel.cream} roughness={0.85} />
+      </mesh>
+      {/* hair cap */}
+      <mesh position={[0, 0.92, 0]}>
+        <sphereGeometry args={[0.44, 32, 32, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
+        <meshStandardMaterial color={pastel.ink} roughness={0.8} />
       </mesh>
       {/* eyes */}
-      {[-0.22, 0.22].map((x) => (
-        <mesh key={x} position={[x, 0.55, 0.55]}>
-          <sphereGeometry args={[0.08, 16, 16]} />
+      {[-0.15, 0.15].map((x) => (
+        <mesh key={x} position={[x, 0.78, 0.38]}>
+          <sphereGeometry args={[0.055, 16, 16]} />
           <meshStandardMaterial color={pastel.ink} roughness={0.4} />
         </mesh>
       ))}
       {/* cheeks */}
-      {[-0.34, 0.34].map((x) => (
-        <mesh key={x} position={[x, 0.4, 0.5]}>
-          <circleGeometry args={[0.1, 20]} />
+      {[-0.24, 0.24].map((x) => (
+        <mesh key={x} position={[x, 0.66, 0.34]}>
+          <circleGeometry args={[0.07, 18]} />
           <meshStandardMaterial color={pastel.blush} roughness={1} />
+        </mesh>
+      ))}
+      {/* little arms */}
+      {[-1, 1].map((s) => (
+        <mesh key={s} castShadow position={[s * 0.5, 0.1, 0]}>
+          <sphereGeometry args={[0.16, 18, 18]} />
+          <meshStandardMaterial color={pastel.lavenderDeep} roughness={0.9} />
         </mesh>
       ))}
     </group>
   );
 }
 
+/* --------------------------- chat sandbox ----------------------------------- */
+
 const SEED_THREAD = [
   { id: 'm1', from: 'bot', text: 'Hey! I’m Sprout 🌱 How are you feeling today?' },
   { id: 'm2', from: 'me', text: 'A little stressed about exams tbh' },
   { id: 'm3', from: 'bot', text: 'That’s really valid. Want to try a 2-minute breathing reset together?' },
 ];
-
 const CANNED = [
   'I hear you 💚 tell me more whenever you’re ready.',
   'That sounds tough. What helped a little last time?',
@@ -84,12 +103,12 @@ export default function YouthAICompanion({ navigation }) {
   const [draft, setDraft] = useState('');
   const scroller = useRef();
   const replyIndex = useRef(0);
+  const isFocused = useIsFocused(); // gate the GL context to this screen's lifetime
 
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    const mine = { id: `me-${Date.now()}`, from: 'me', text };
-    setThread((prev) => [...prev, mine]);
+    setThread((prev) => [...prev, { id: `me-${Date.now()}`, from: 'me', text }]);
     setDraft('');
     setTimeout(() => {
       const reply = CANNED[replyIndex.current % CANNED.length];
@@ -102,29 +121,29 @@ export default function YouthAICompanion({ navigation }) {
 
   return (
     <View style={styles.root}>
-      {/* Top half: companion */}
       <View style={styles.stage}>
         <LinearGradient colors={[pastel.sky, pastel.lavender]} style={StyleSheet.absoluteFill} />
-        <Canvas shadows camera={{ position: [0, 0.3, 3.4], fov: 42 }} onCreated={({ gl }) => gl.setClearColor('#000000', 0)}>
-          <ambientLight intensity={0.8} />
-          <directionalLight position={[2, 4, 3]} intensity={1.2} castShadow />
-          <Companion />
-        </Canvas>
+        {isFocused && (
+          <Canvas shadows camera={{ position: [0, 0.4, 4.0], fov: 42 }} onCreated={({ gl }) => gl.setClearColor('#000000', 0)}>
+            <ambientLight intensity={0.8} />
+            <directionalLight position={[2, 4, 3]} intensity={1.1} castShadow />
+            <pointLight position={[-2, 1, 2]} intensity={8} distance={8} color={pastel.neon} />
+            <UserAvatar />
+            {/* AI companion = the floating celestial orb (no chair/seat binding) */}
+            <OrbCompanion position={[1.05, 0.15, 0]} scale={1.05} />
+          </Canvas>
+        )}
 
         <SafeAreaView style={styles.header} edges={['top']} pointerEvents="box-none">
           <Pressable onPress={() => navigation?.goBack()} hitSlop={12} style={styles.back}>
             <Text style={styles.backText}>‹ Room</Text>
           </Pressable>
-          <Text style={styles.name}>Sprout</Text>
+          <Text style={styles.name}>Sprout & You</Text>
           <Text style={styles.status}>● your companion</Text>
         </SafeAreaView>
       </View>
 
-      {/* Bottom half: glass chat window */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.chatWrap}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatWrap}>
         <View style={styles.chatGlass}>
           <ScrollView
             ref={scroller}
@@ -202,22 +221,7 @@ const styles = StyleSheet.create({
   bubbleText: { color: pastel.ink, fontSize: 14.5, lineHeight: 20, fontWeight: '500' },
 
   inputRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, gap: 10 },
-  input: {
-    flex: 1,
-    backgroundColor: pastel.cream,
-    borderRadius: rad.pill,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    color: pastel.ink,
-    fontSize: 15,
-  },
-  sendBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: pastel.mintDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  input: { flex: 1, backgroundColor: pastel.cream, borderRadius: rad.pill, paddingHorizontal: 18, paddingVertical: 12, color: pastel.ink, fontSize: 15 },
+  sendBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: pastel.mintDeep, alignItems: 'center', justifyContent: 'center' },
   sendText: { color: pastel.white, fontSize: 22, fontWeight: '900' },
 });

@@ -2,13 +2,13 @@
  * youthTheme.js
  *
  * Youth-portal design tokens (Bondee-style: soft pastels, clay surfaces) plus
- * the `youthHouseConfig` schema. Kept separate from the core `theme.js` so the
- * worker/volunteer side stays untouched.
+ * the expanded `youthHouseConfig` schema. Kept separate from core theme.js so
+ * the worker/volunteer side stays untouched.
  *
- * WORKER PARITY: `youthHouseConfig` is the exact template object that will pipe
- * into the worker's village map later. `toWorkerHouseConfig()` documents the
- * 1:1 mapping onto the volunteer-side house schema fields (houseType/roofColor/
- * wallColor/windowIntensity) without importing it (keeps the portals isolated).
+ * WORKER PARITY: `youthHouseConfig` is the template object that pipes into the
+ * worker's village map later. `toWorkerHouseConfig()` documents the mapping
+ * onto the volunteer-side house schema without importing it (keeps portals
+ * isolated).
  */
 
 export const pastel = {
@@ -29,14 +29,17 @@ export const pastel = {
   sub: '#8A7F95',
   white: '#FFFFFF',
   glow: '#FFE3A3',
+  neon: '#65F0E0',
 };
 
+// Three distinct architectural archetypes.
 export const HOUSE_STYLES = [
-  { key: 'cottage', label: 'Cottage' },
-  { key: 'aframe', label: 'Modern A-Frame' },
-  { key: 'cyberglass', label: 'Cyber-Glass Box' },
+  { key: 'village', label: 'Village House' },
+  { key: 'mansion', label: 'Modern Mansion' },
+  { key: 'futuristic', label: 'Futuristic Studio' },
 ];
 
+// Wall / body palettes.
 export const COLOR_THEMES = {
   'Pastel Mint': { wall: '#B8F2E6', roof: '#7FD1C1', accent: '#5FBCAA' },
   'Soft Lavender': { wall: '#D9CCF5', roof: '#B6A4E8', accent: '#9B86DA' },
@@ -44,21 +47,44 @@ export const COLOR_THEMES = {
 };
 export const COLOR_THEME_NAMES = Object.keys(COLOR_THEMES);
 
+// Roof material presets — color + PBR feel stands in for a baked texture.
+export const ROOF_STYLES = {
+  Thatch: { color: '#C9A24B', roughness: 1.0, metalness: 0.0 },
+  'Terracotta Tiles': { color: '#C8502E', roughness: 0.8, metalness: 0.0 },
+  Slate: { color: '#4A5560', roughness: 0.55, metalness: 0.12 },
+  'Solar Metal': { color: '#2B3A55', roughness: 0.22, metalness: 0.85 },
+};
+export const ROOF_STYLE_NAMES = Object.keys(ROOF_STYLES);
+
+// Window emissive color picker options.
+export const WINDOW_COLORS = ['#FFE3A3', '#B8F2E6', '#D9CCF5', '#CDEDF6', '#F7C9D9', '#FFFFFF'];
+
+// Toggleable peripheral plot props.
+export const GARDEN_PROPS = [
+  { key: 'flowers', label: '🌸 Flowers' },
+  { key: 'lamps', label: '🏮 Lamps' },
+  { key: 'pond', label: '💧 Pond' },
+];
+
 // The local configuration state object the customizer binds to.
 export const defaultYouthHouseConfig = {
-  houseStyle: 'cottage',
+  houseStyle: 'village',
   colorTheme: 'Pastel Mint',
-  windowIntensity: 0.5, // 0..1.5 emissive
+  roofStyle: 'Terracotta Tiles',
+  windowColor: '#FFE3A3',
+  windowIntensity: 0.6, // 0..1.5 emissive
+  props: { flowers: true, lamps: false, pond: false },
 };
 
 /** Map youthHouseConfig -> the volunteer-side house schema shape (future use). */
 export function toWorkerHouseConfig(cfg) {
   const theme = COLOR_THEMES[cfg.colorTheme] ?? COLOR_THEMES['Pastel Mint'];
+  const roof = ROOF_STYLES[cfg.roofStyle] ?? ROOF_STYLES['Terracotta Tiles'];
   return {
-    houseType: cfg.houseStyle === 'aframe' ? 'townhouse' : cfg.houseStyle === 'cyberglass' ? 'cabin' : 'cottage',
-    roofColor: theme.roof,
+    houseType: cfg.houseStyle === 'mansion' ? 'townhouse' : cfg.houseStyle === 'futuristic' ? 'cabin' : 'cottage',
+    roofColor: roof.color,
     wallColor: theme.wall,
-    windowEmission: pastel.glow,
+    windowEmission: cfg.windowColor,
     windowIntensity: cfg.windowIntensity,
   };
 }

@@ -24,6 +24,7 @@ import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import GardenBackground from '../../components/GardenBackground';
 import GlassCard from '../../components/GlassCard';
+import MiniRoomPreview from '../youth/MiniRoomPreview';
 import { useVolatileTranscript } from '../../context/VolatileTranscriptContext';
 import { importChatFromSource } from '../../api/ingestionService';
 import { gradients, palette, radius, spacing, typography } from '../../theme/theme';
@@ -60,7 +61,7 @@ function SourceButton({ label, glyph, onPress }) {
 }
 
 export default function YouthCaseDetail({ route, navigation }) {
-  const { caseId = '#H-008', youthName = 'Hana M.', caseKey = 'H-008' } = route.params ?? {};
+  const { caseId = '#H-008', youthName = 'Hana M.', caseKey = 'H-008', youthHouseConfig } = route.params ?? {};
   const { caseHistories, ingestTranscript } = useVolatileTranscript();
   const [modalOpen, setModalOpen] = useState(false);
   const [loadingSource, setLoadingSource] = useState(null);
@@ -88,7 +89,12 @@ export default function YouthCaseDetail({ route, navigation }) {
 
           <Text style={styles.kicker}>CASE {caseId}</Text>
           <Text style={styles.title}>{youthName}</Text>
-          <Text style={styles.subtitle}>Anonymized session history</Text>
+
+          {/* Read-only mirror of the youth's customized Bondee room */}
+          <Text style={styles.sectionLabel}>THEIR SPACE</Text>
+          <MiniRoomPreview youthHouseConfig={youthHouseConfig} height={230} />
+
+          <Text style={[styles.subtitle, { marginTop: spacing.lg }]}>Anonymized session history</Text>
 
           {histories.length === 0 ? (
             <GlassCard style={styles.empty} radiusSize={radius.md}>
@@ -161,6 +167,7 @@ const styles = StyleSheet.create({
   kicker: { ...typography.caption, color: palette.mint },
   title: { ...typography.display, marginTop: 4 },
   subtitle: { ...typography.body, color: palette.fog, marginTop: 6, marginBottom: spacing.lg },
+  sectionLabel: { ...typography.caption, color: palette.mint, marginTop: spacing.md, marginBottom: 8 },
 
   historyCard: { marginBottom: 12 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },

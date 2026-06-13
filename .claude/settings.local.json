@@ -14,7 +14,8 @@
       "Bash(node -e \"const p=require\\('moti/package.json'\\); console.log\\('moti', p.version\\); console.log\\('peers', JSON.stringify\\(p.peerDependencies||{}\\)\\)\")",
       "Bash(npm view *)",
       "Bash(curl -s -m 10 http://localhost:8081/status -w \" [http=%{http_code}]\\\\n\")",
-      "Bash(curl -s -m 280 \"http://localhost:8081/node_modules/expo/AppEntry.bundle?platform=android&dev=true&minify=false\" -o /tmp/ae54.out -w \"HTTP %{http_code}, %{size_download} bytes\\\\n\")"
+      "Bash(curl -s -m 280 \"http://localhost:8081/node_modules/expo/AppEntry.bundle?platform=android&dev=true&minify=false\" -o /tmp/ae54.out -w \"HTTP %{http_code}, %{size_download} bytes\\\\n\")",
+      "mcp__a8de9cab-235b-42bd-a74a-ca03bfcbf85a__learn_threejs"
     ]
   }
 }

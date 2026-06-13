@@ -1,182 +1,139 @@
 /**
- * PeerForum.js — Anonymous peer community (prototype)
+ * PeerForum.js — Worker peer forum, synced to the youth Pinboard aesthetic
  *
- * A lightweight feed where users view and publish cards. Every entry is forced
- * to display as "Anonymous" — no author identity is ever rendered. Includes a
- * structured comments section.
+ * Overhauled from rigid cards into the same tactile corkboard used on the youth
+ * side: anonymous worker discussion posts render as pinned sticky notes /
+ * polaroids, gently tilted. Imports the youth pastel/cork tokens so the two
+ * portals share one visual language.
  *
- * DEVELOPER TOGGLE
- * ----------------
- * Flip SHOW_COMMENTS to false to disable the entire comment section app-wide
- * (intended for the future youth-app deployment where comments may be off).
+ * Preserves the original layout toggle: SHOW_COMMENTS hides the reply line on
+ * every note when disabled.
  */
 
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
-import GardenBackground from '../../components/GardenBackground';
-import GlassCard from '../../components/GlassCard';
-import { palette, radius, spacing, typography } from '../../theme/theme';
+import { pastel, youthRadius as rad } from '../youth/youthTheme';
 
-// 🔧 DEV CONFIG — set to false to remove the comments section entirely.
+// 🔧 DEV CONFIG — set false to hide the comment line on every note app-wide.
 const SHOW_COMMENTS = true;
 
-const SEED_POSTS = [
-  {
-    id: 'p1',
-    body: 'Finals week is rough. Anyone else just taking it one hour at a time? 🌱',
-    timestamp: '5m ago',
-    comments: [
-      { id: 'c1', body: 'Same here. Tiny breaks help me a lot.' },
-      { id: 'c2', body: 'One hour at a time is totally valid 💚' },
-    ],
-  },
-  {
-    id: 'p2',
-    body: 'Made up with a friend after a long argument today. Small wins count.',
-    timestamp: '1h ago',
-    comments: [{ id: 'c3', body: 'Love this for you.' }],
-  },
+const NOTE_TINTS = ['#FFF6D8', '#D9F2E6', '#F7D9E3', '#E2DBF7', '#FCE6C8'];
+const SEED = [
+  { id: 'p1', body: 'Reminder: log the safeguarding check-in before EOD 🙏', comments: 3 },
+  { id: 'p2', body: 'Any tips for a youth who keeps cancelling sessions?', comments: 7 },
+  { id: 'p3', body: 'Win: matched two youths to the new mentoring cohort 🎉', comments: 4 },
+  { id: 'p4', body: 'Peer support drop-in moved to Thursdays this month.', comments: 1 },
 ];
 
-function CommentSection({ comments }) {
-  if (!SHOW_COMMENTS) return null; // developer-disabled
-  return (
-    <View style={styles.commentBlock}>
-      <Text style={styles.commentHeader}>Comments</Text>
-      {comments.length === 0 ? (
-        <Text style={styles.noComments}>No replies yet.</Text>
-      ) : (
-        comments.map((c) => (
-          <View key={c.id} style={styles.commentRow}>
-            <Text style={styles.anonTag}>Anonymous</Text>
-            <Text style={styles.commentBody}>{c.body}</Text>
-          </View>
-        ))
-      )}
-    </View>
-  );
-}
-
-function PostCard({ post, index }) {
+function Note({ post, index }) {
+  const tilt = ((index % 3) - 1) * 2.5;
+  const tint = NOTE_TINTS[index % NOTE_TINTS.length];
   return (
     <MotiView
-      from={{ opacity: 0, translateY: 12 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'timing', duration: 420, delay: index * 100 }}
+      from={{ opacity: 0, scale: 0.9, rotate: `${tilt}deg` }}
+      animate={{ opacity: 1, scale: 1, rotate: `${tilt}deg` }}
+      transition={{ type: 'spring', damping: 14, stiffness: 160, delay: index * 80 }}
+      style={styles.noteSlot}
     >
-      <GlassCard style={styles.post} radiusSize={radius.lg}>
-        <View style={styles.postHeader}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarGlyph}>❀</Text>
-          </View>
-          <View>
-            <Text style={styles.anonName}>Anonymous</Text>
-            <Text style={styles.postTime}>{post.timestamp}</Text>
-          </View>
-        </View>
-        <Text style={styles.postBody}>{post.body}</Text>
-        <CommentSection comments={post.comments} />
-      </GlassCard>
+      <View style={[styles.note, { backgroundColor: tint }]}>
+        <View style={styles.pin} />
+        <Text style={styles.anon}>Anonymous</Text>
+        <Text style={styles.noteBody}>{post.body}</Text>
+        {SHOW_COMMENTS && <Text style={styles.comments}>💬 {post.comments} replies</Text>}
+      </View>
     </MotiView>
   );
 }
 
 export default function PeerForum() {
-  const [posts, setPosts] = useState(SEED_POSTS);
+  const [posts, setPosts] = useState(SEED);
   const [draft, setDraft] = useState('');
 
-  const publish = () => {
-    const text = draft.trim();
-    if (!text) return;
-    setPosts((prev) => [
-      { id: `p-${Date.now()}`, body: text, timestamp: 'Just now', comments: [] },
-      ...prev,
-    ]);
+  const pin = () => {
+    const body = draft.trim();
+    if (!body) return;
+    setPosts((prev) => [{ id: `p-${Date.now()}`, body, comments: 0 }, ...prev]);
     setDraft('');
   };
 
   return (
-    <GardenBackground>
+    <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          <Text style={styles.kicker}>PEER COMMUNITY</Text>
-          <Text style={styles.title}>The Greenhouse</Text>
-          <Text style={styles.subtitle}>Share anonymously. Be kind. 🌿</Text>
+        <View style={styles.header}>
+          <Text style={styles.kicker}>WORKER COMMUNITY</Text>
+          <Text style={styles.title}>The Pinboard</Text>
+          <Text style={styles.subtitle}>Anonymous notes between volunteers 🌱</Text>
+        </View>
 
-          <GlassCard style={styles.composer} radiusSize={radius.lg}>
+        <ScrollView contentContainerStyle={styles.board} showsVerticalScrollIndicator={false}>
+          <View style={[styles.note, styles.compose]}>
+            <View style={styles.pin} />
             <TextInput
-              style={styles.composerInput}
+              style={styles.composeInput}
               value={draft}
               onChangeText={setDraft}
-              placeholder="Plant a thought… (posted anonymously)"
-              placeholderTextColor={palette.fog}
+              placeholder="Pin an anonymous note…"
+              placeholderTextColor={pastel.sub}
               multiline
             />
-            <Pressable onPress={publish} style={styles.publishBtn}>
-              <Text style={styles.publishText}>Publish</Text>
+            <Pressable onPress={pin} style={styles.pinBtn}>
+              <Text style={styles.pinBtnText}>Pin it</Text>
             </Pressable>
-          </GlassCard>
+          </View>
 
-          {posts.map((post, i) => (
-            <PostCard key={post.id} post={post} index={i} />
-          ))}
+          <View style={styles.grid}>
+            {posts.map((p, i) => (
+              <Note key={p.id} post={p} index={i} />
+            ))}
+          </View>
         </ScrollView>
       </SafeAreaView>
-    </GardenBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: pastel.cork },
   safe: { flex: 1 },
-  scroll: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: 140 },
-  kicker: { ...typography.caption, color: palette.mint },
-  title: { ...typography.display, marginTop: 4 },
-  subtitle: { ...typography.body, color: palette.fog, marginTop: 6, marginBottom: spacing.lg },
+  header: { paddingHorizontal: 22, paddingTop: 8, paddingBottom: 6 },
+  kicker: { color: '#5C4427', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
+  title: { color: '#3E2C18', fontWeight: '900', fontSize: 28, marginTop: 4 },
+  subtitle: { color: '#5C4427', fontWeight: '600', fontSize: 13.5, marginTop: 4 },
 
-  composer: { marginBottom: spacing.lg },
-  composerInput: {
-    color: palette.white,
-    fontSize: 15,
-    minHeight: 56,
-    textAlignVertical: 'top',
-  },
-  publishBtn: {
-    alignSelf: 'flex-end',
-    marginTop: 12,
-    backgroundColor: palette.mint,
-    paddingHorizontal: 22,
-    paddingVertical: 9,
-    borderRadius: radius.pill,
-  },
-  publishText: { color: palette.ink, fontWeight: '900', fontSize: 14 },
+  board: { padding: 16, paddingBottom: 140 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
 
-  post: { marginBottom: spacing.md },
-  postHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(110,231,183,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  noteSlot: { width: '48%', marginBottom: 16 },
+  note: {
+    borderRadius: rad.sm,
+    padding: 14,
+    paddingTop: 22,
+    minHeight: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  avatarGlyph: { color: palette.mint, fontSize: 18 },
-  anonName: { color: palette.white, fontWeight: '800', fontSize: 14.5 },
-  postTime: { color: palette.fog, fontSize: 12, marginTop: 1 },
-  postBody: { color: palette.cloud, fontSize: 15.5, lineHeight: 22 },
+  pin: {
+    position: 'absolute',
+    top: 8,
+    alignSelf: 'center',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E0564E',
+    borderWidth: 2,
+    borderColor: '#B8403A',
+  },
+  anon: { color: pastel.mintDeep, fontWeight: '800', fontSize: 11, marginBottom: 6 },
+  noteBody: { color: pastel.ink, fontSize: 14, lineHeight: 19, fontWeight: '600' },
+  comments: { color: pastel.sub, fontSize: 11.5, fontWeight: '700', marginTop: 10 },
 
-  commentBlock: {
-    marginTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.12)',
-    paddingTop: 12,
-  },
-  commentHeader: { color: palette.fog, fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 10 },
-  noComments: { color: palette.fog, fontSize: 13, fontStyle: 'italic' },
-  commentRow: { marginBottom: 10 },
-  anonTag: { color: palette.mint, fontSize: 11.5, fontWeight: '800', marginBottom: 2 },
-  commentBody: { color: palette.cloud, fontSize: 14, lineHeight: 19 },
+  compose: { width: '100%', backgroundColor: pastel.white, marginBottom: 18 },
+  composeInput: { color: pastel.ink, fontSize: 15, minHeight: 48, textAlignVertical: 'top' },
+  pinBtn: { alignSelf: 'flex-end', marginTop: 10, backgroundColor: pastel.mintDeep, paddingHorizontal: 20, paddingVertical: 8, borderRadius: rad.pill },
+  pinBtnText: { color: pastel.white, fontWeight: '900', fontSize: 13 },
 });
