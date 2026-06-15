@@ -42,9 +42,11 @@ export function VolatileTranscriptProvider({ children }) {
   const [transcriptBuffer, setTranscriptBuffer] = useState(null); // raw imported chat payload
   const [rawTextLines, setRawTextLines] = useState(null); // unparsed transcript lines
   const [editableDraft, setEditableDraft] = useState(null); // unedited / in-progress AI draft
+  const [journalDraft, setJournalDraft] = useState(null); // Journaling Bookshelf: temporary entry text (volatile)
 
   // ---- SAFE / RETAINED STATE (sanitized summaries only) ----
   const [caseHistories, setCaseHistories] = useState(SEED_HISTORIES);
+  const [journalEntries, setJournalEntries] = useState([]); // permanent (committed) journal entries
 
   /**
    * Simulate ingesting a raw transcript from a source (Telegram / WhatsApp)
@@ -104,6 +106,22 @@ export function VolatileTranscriptProvider({ children }) {
     setTranscriptBuffer(null);
     setRawTextLines(null);
     setEditableDraft(null);
+    setJournalDraft(null);
+  }, []);
+
+  /**
+   * Journaling Bookshelf — TEMPORARY journal purge. The temporary entry text
+   * lives ONLY in `journalDraft`; this wipes it the instant "Submit" fires. No
+   * API/DB call ever sees it.
+   */
+  const flushJournalDraft = useCallback(() => setJournalDraft(null), []);
+
+  /**
+   * Journaling Bookshelf — PERMANENT journal commit. Appends a retained entry
+   * (called AFTER journalService.savePermanentEntry resolves).
+   */
+  const commitJournalEntry = useCallback((entry) => {
+    setJournalEntries((prev) => [...prev, entry]);
   }, []);
 
   const value = useMemo(
@@ -112,23 +130,33 @@ export function VolatileTranscriptProvider({ children }) {
       transcriptBuffer,
       rawTextLines,
       editableDraft,
+      journalDraft,
       // retained sanitized data
       caseHistories,
+      journalEntries,
       // actions
       ingestTranscript,
       updateDraft,
       commitSanitizedSummary,
       flushState,
+      // journaling bookshelf
+      setJournalDraft,
+      flushJournalDraft,
+      commitJournalEntry,
     }),
     [
       transcriptBuffer,
       rawTextLines,
       editableDraft,
+      journalDraft,
       caseHistories,
+      journalEntries,
       ingestTranscript,
       updateDraft,
       commitSanitizedSummary,
       flushState,
+      flushJournalDraft,
+      commitJournalEntry,
     ]
   );
 

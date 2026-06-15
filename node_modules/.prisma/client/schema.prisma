@@ -1,0 +1,25 @@
+// Journaling Service — PERMANENT entries only. The body is stored as
+// application-encrypted ciphertext (AES-256-GCM); the key never lives in the DB.
+// Pair with storage/volume encryption (TDE / RDS encrypted storage) for full
+// encryption-at-rest. Temporary drafts are NOT here — they live in Redis.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model JournalEntry {
+  id       String   @id @default(uuid()) @db.Uuid
+  ownerId  String   @map("owner_id") @db.Uuid // youth user id
+  bodyEnc  Bytes    @map("body_enc") // iv | authTag | ciphertext
+  preview  String? // short, non-sensitive snippet (safe to index/display)
+  sealedAt DateTime @default(now()) @map("sealed_at")
+  entryRef String?  @unique @map("entry_ref") // 'JRN-#####' receipt
+
+  @@index([ownerId])
+  @@map("journal_entries")
+}

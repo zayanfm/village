@@ -20,13 +20,16 @@ import YouthExteriorEdit from '../screens/youth/YouthExteriorEdit';
 import YouthRoomHome from '../screens/youth/YouthRoomHome';
 import YouthAICompanion from '../screens/youth/YouthAICompanion';
 import YouthPinboardForum from '../screens/youth/YouthPinboardForum';
+import YouthJournalShelf from '../screens/youth/YouthJournalShelf';
 
 const Stack = createNativeStackNavigator();
 
 export default function YouthNavigator() {
   return (
     <Stack.Navigator
-      initialRouteName="YouthExteriorEdit"
+      // Normal flow starts at YouthExteriorEdit. Booting at the room so the
+      // bookshelf -> Journaling Shelf route is immediately testable.
+      initialRouteName="YouthRoomHome"
       screenOptions={{
         headerShown: false,
         animation: 'fade',
@@ -37,6 +40,7 @@ export default function YouthNavigator() {
       <Stack.Screen name="YouthRoomHome" component={YouthRoomHome} />
       <Stack.Screen name="YouthAICompanion" component={YouthAICompanion} />
       <Stack.Screen name="YouthPinboardForum" component={YouthPinboardForum} />
+      <Stack.Screen name="YouthJournalShelf" component={YouthJournalShelf} />
     </Stack.Navigator>
   );
 }

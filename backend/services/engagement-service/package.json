@@ -1,0 +1,24 @@
+{
+  "name": "@unigarden/engagement-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UniGarden Engagement Service — forum/pinboard posts + threaded comments (MongoDB/Mongoose)",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test:db": "ts-node src/test-db.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "dotenv-expand": "^11.0.7",
+    "express": "^4.21.1",
+    "mongoose": "^8.8.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.9.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

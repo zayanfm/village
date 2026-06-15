@@ -31,6 +31,7 @@ const LABEL_W = 170;
 const FOCUS_TARGETS = {
   pin: { anchor: [1.4, 2.55, -2.88], route: 'YouthPinboardForum' },
   ai: { anchor: [-1.4, 1.6, -1.4], route: 'YouthAICompanion' },
+  shelf: { anchor: [-2.0, 2.1, -2.6], route: 'YouthJournalShelf' },
 };
 
 function Room({ accent }) {
@@ -121,10 +122,63 @@ function Plant() {
   );
 }
 
+// Open bookcase against the back wall. The whole group is the tap target; the
+// two hero journals (leather = permanent, holographic = temporary) hint at the
+// Journaling Shelf it routes to.
+function Bookshelf({ onPress }) {
+  const halo = useRef();
+  useFrame(({ clock }) => {
+    if (halo.current && halo.current.material) {
+      halo.current.material.emissiveIntensity = 0.7 + Math.sin(clock.elapsedTime * 2) * 0.3;
+    }
+  });
+  const planks = [0.06, 0.64, 1.22, 1.8]; // shelf heights (group sits on the floor)
+  return (
+    <group position={[-2.0, 0, -2.6]} onClick={onPress}>
+      {/* back panel */}
+      <mesh castShadow receiveShadow position={[0, 0.9, -0.16]}>
+        <boxGeometry args={[1.25, 1.8, 0.06]} />
+        <meshStandardMaterial color={pastel.corkDark} roughness={0.85} />
+      </mesh>
+      {/* sides */}
+      {[-0.6, 0.6].map((x) => (
+        <mesh key={x} castShadow position={[x, 0.9, 0]}>
+          <boxGeometry args={[0.08, 1.8, 0.36]} />
+          <meshStandardMaterial color={pastel.cork} roughness={0.85} />
+        </mesh>
+      ))}
+      {/* horizontal planks */}
+      {planks.map((y) => (
+        <mesh key={y} castShadow receiveShadow position={[0, y, 0]}>
+          <boxGeometry args={[1.25, 0.06, 0.36]} />
+          <meshStandardMaterial color={pastel.cork} roughness={0.85} />
+        </mesh>
+      ))}
+      {/* filler books on the top + bottom shelves */}
+      {[[0.06, '#7FD1C1'], [0.06, '#F7C9D9'], [1.22, '#D9CCF5'], [1.22, '#F6D6A8']].map(([y, c], i) => (
+        <mesh key={i} castShadow position={[-0.35 + (i % 2) * 0.7 + (i > 1 ? 0.04 : 0), y + 0.27, 0.04]}>
+          <boxGeometry args={[0.12, 0.44, 0.26]} />
+          <meshStandardMaterial color={c} roughness={0.7} />
+        </mesh>
+      ))}
+      {/* hero journals on the middle shelf: leather (permanent) + holographic (temporary) */}
+      <mesh castShadow position={[-0.18, 0.92, 0.05]}>
+        <boxGeometry args={[0.16, 0.5, 0.28]} />
+        <meshStandardMaterial color={'#6E3B2E'} roughness={0.6} metalness={0.08} />
+      </mesh>
+      <mesh ref={halo} castShadow position={[0.14, 0.92, 0.05]}>
+        <boxGeometry args={[0.16, 0.5, 0.28]} />
+        <meshStandardMaterial color={'#1B2A4A'} emissive={pastel.neon} emissiveIntensity={0.8} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
 function Scene({ accent, control, projected, onArrive }) {
   const root = useRef();
   const anchorPin = useRef();
   const anchorAI = useRef();
+  const anchorShelf = useRef();
   const { size } = useThree();
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const camTarget = useMemo(() => new THREE.Vector3(), []);
@@ -160,7 +214,7 @@ function Scene({ accent, control, projected, onArrive }) {
     }
 
     const out = [];
-    [anchorPin, anchorAI].forEach((ref) => {
+    [anchorPin, anchorAI, anchorShelf].forEach((ref) => {
       if (ref.current) {
         ref.current.getWorldPosition(tmp).project(camera);
         out.push({ x: (tmp.x * 0.5 + 0.5) * size.width, y: (-tmp.y * 0.5 + 0.5) * size.height, visible: tmp.z < 1 });
@@ -184,10 +238,12 @@ function Scene({ accent, control, projected, onArrive }) {
         {/* AI companion is the floating orb (NOT a seat) */}
         <OrbCompanion position={[-1.4, 0.95, -1.4]} scale={0.8} onPress={() => focus('ai')} />
         <Pinboard onPress={() => focus('pin')} />
+        <Bookshelf onPress={() => focus('shelf')} />
         <Door onPress={() => onArrive('YouthExteriorEdit')} />
         <Plant />
         <group ref={anchorPin} position={FOCUS_TARGETS.pin.anchor} />
         <group ref={anchorAI} position={FOCUS_TARGETS.ai.anchor} />
+        <group ref={anchorShelf} position={FOCUS_TARGETS.shelf.anchor} />
       </group>
     </>
   );
@@ -215,7 +271,11 @@ export default function YouthRoomHome({ navigation, route }) {
   const isFocused = useIsFocused();
 
   const control = useRef({ azimuth: 0, base: 0, requestFocus: null, focusing: false, fired: false, activeFocus: null });
-  const projected = useSharedValue([{ x: 0, y: 0, visible: false }, { x: 0, y: 0, visible: false }]);
+  const projected = useSharedValue([
+    { x: 0, y: 0, visible: false },
+    { x: 0, y: 0, visible: false },
+    { x: 0, y: 0, visible: false },
+  ]);
   const navigatedRef = useRef(false);
 
   // Reset interaction + nav state every time the screen regains focus, so the
@@ -263,6 +323,7 @@ export default function YouthRoomHome({ navigation, route }) {
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <Label index={0} text="Community Pinboard" projected={projected} onPress={() => (control.current.requestFocus = 'pin')} />
         <Label index={1} text="AI Companion" projected={projected} onPress={() => (control.current.requestFocus = 'ai')} />
+        <Label index={2} text="Journaling Shelf" projected={projected} onPress={() => (control.current.requestFocus = 'shelf')} />
       </View>
 
       <SafeAreaView style={styles.header} edges={['top']} pointerEvents="box-none">

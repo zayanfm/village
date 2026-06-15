@@ -1,0 +1,136 @@
+# UniGarden — Local backend infrastructure (Database-per-Service)
+#
+# Provisions one isolated datastore per microservice. Each service owns its DB;
+# no service shares another's. Bring it all up with:  docker compose up -d
+#
+# Persistence: every DB uses a named volume so local data survives restarts.
+# EXCEPTION: journal-cache is intentionally volatile (no volume + save "" +
+# appendonly no) to enforce the "Temporary journal lives only in memory" rule.
+
+services:
+  # ── user-service ─────────────────────────────────────────────── PostgreSQL
+  user-db:
+    image: postgres:16
+    container_name: unigarden-user-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iluvhasini}
+      POSTGRES_DB: userdb
+    ports:
+      # Host 5432 is commonly taken by a NATIVE PostgreSQL install (the Windows
+      # service postgresql-x64-NN). Publish on 5435 to avoid that collision;
+      # the container still listens on 5432 internally.
+      - "5435:5432"
+    volumes:
+      - userdb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uni -d userdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── journaling-service (durable half) ────────────────────────── PostgreSQL
+  journal-db:
+    image: postgres:16
+    container_name: unigarden-journal-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iluvhasini}
+      POSTGRES_DB: journaldb
+    ports:
+      - "5433:5432"
+    volumes:
+      - journaldb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uni -d journaldb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── calendar-service ─────────────────────────────────────────── PostgreSQL
+  calendar-db:
+    image: postgres:16
+    container_name: unigarden-calendar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iluvhasini}
+      POSTGRES_DB: calendardb
+    ports:
+      - "5434:5432"
+    volumes:
+      - calendardb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uni -d calendardb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── journaling-service (volatile half) ─────────────────────── Redis (no disk)
+  # Flags below disable BOTH persistence mechanisms: RDB snapshots (save "")
+  # and the AOF (appendonly no). Nothing this cache holds ever touches disk.
+  journal-cache:
+    image: redis:7
+    container_name: unigarden-journal-cache
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    # The redis image declares VOLUME /data; mount it as tmpfs (RAM) so nothing
+    # can ever reach disk and no anonymous volume is created. Volatility is the
+    # feature — combined with save "" + appendonly no this is 100% in-memory.
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── house-service ──────────────────────────────────────────────── MongoDB
+  house-db:
+    image: mongo:7
+    container_name: unigarden-house-db
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-test}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-iluvhasini}
+      MONGO_INITDB_DATABASE: house_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - housedb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── engagement-service ─────────────────────────────────────────── MongoDB
+  engagement-db:
+    image: mongo:7
+    container_name: unigarden-engagement-db
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-test}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-iluvhasini}
+      MONGO_INITDB_DATABASE: engagement_db
+    ports:
+      - "27018:27017"
+    volumes:
+      - engagementdb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  userdb_data:
+  journaldb_data:
+  calendardb_data:
+  housedb_data:
+  engagementdb_data:
+  # (journal-cache deliberately has no volume)

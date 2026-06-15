@@ -35,7 +35,7 @@ export default function App() {
           <NavigationContainer theme={navTheme}>
             <StatusBar style="light" />
             {/* Default: worker side. For youth preview use: <YouthNavigator /> */}
-            <RootNavigator />
+            <YouthNavigator />
           </NavigationContainer>
         </VolatileTranscriptProvider>
       </SafeAreaProvider>
