@@ -34,7 +34,7 @@ export default function App() {
         <VolatileTranscriptProvider>
           <NavigationContainer theme={navTheme}>
             <StatusBar style="light" />
-            {/* Default: worker side. For youth preview use: <YouthNavigator /> */}
+            {/* Youth side. For worker/volunteer preview use: <RootNavigator /> */}
             <YouthNavigator />
           </NavigationContainer>
         </VolatileTranscriptProvider>

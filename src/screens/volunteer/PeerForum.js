@@ -1,33 +1,37 @@
 /**
- * PeerForum.js — Worker peer forum, synced to the youth Pinboard aesthetic
+ * PeerForum.js — Worker Pinboard Monitor (read-only)
  *
- * Overhauled from rigid cards into the same tactile corkboard used on the youth
- * side: anonymous worker discussion posts render as pinned sticky notes /
- * polaroids, gently tilted. Imports the youth pastel/cork tokens so the two
- * portals share one visual language.
+ * Repurposed from a separate worker board into a MONITORING view of the youth
+ * Pinboard: it loads the exact same feed as YouthPinboardForum (board
+ * 'youth_pinboard') so volunteers can watch what youth are posting. Read-only
+ * for now — no composing notes, and tapping a note opens its replies in a
+ * view-only sheet (no replying).
  *
- * Preserves the original layout toggle: SHOW_COMMENTS hides the reply line on
- * every note when disabled.
+ * Shares the youth corkboard aesthetic + tokens so the two portals stay visually
+ * aligned. SHOW_COMMENTS preserves the app-wide reply-line toggle.
  */
 
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
+import { listPosts, BOARDS } from '../../api/engagementService';
+import CommentSheet from '../../components/CommentSheet';
 import { pastel, youthRadius as rad } from '../youth/youthTheme';
+
+// Monitor the YOUTH pinboard — same feed the youth see.
+const BOARD = BOARDS.YOUTH;
 
 // 🔧 DEV CONFIG — set false to hide the comment line on every note app-wide.
 const SHOW_COMMENTS = true;
 
 const NOTE_TINTS = ['#FFF6D8', '#D9F2E6', '#F7D9E3', '#E2DBF7', '#FCE6C8'];
-const SEED = [
-  { id: 'p1', body: 'Reminder: log the safeguarding check-in before EOD 🙏', comments: 3 },
-  { id: 'p2', body: 'Any tips for a youth who keeps cancelling sessions?', comments: 7 },
-  { id: 'p3', body: 'Win: matched two youths to the new mentoring cohort 🎉', comments: 4 },
-  { id: 'p4', body: 'Peer support drop-in moved to Thursdays this month.', comments: 1 },
-];
 
-function Note({ post, index }) {
+// Normalize a backend post ({ id, body, comments, createdAt }) for display.
+const normalize = (p) => ({ id: p.id, body: p.body, comments: p.comments ?? 0, createdAt: p.createdAt });
+const newestFirst = (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0);
+
+function Note({ post, index, onPress }) {
   const tilt = ((index % 3) - 1) * 2.5;
   const tint = NOTE_TINTS[index % NOTE_TINTS.length];
   return (
@@ -37,59 +41,91 @@ function Note({ post, index }) {
       transition={{ type: 'spring', damping: 14, stiffness: 160, delay: index * 80 }}
       style={styles.noteSlot}
     >
-      <View style={[styles.note, { backgroundColor: tint }]}>
+      <Pressable style={[styles.note, { backgroundColor: tint }]} onPress={onPress}>
         <View style={styles.pin} />
         <Text style={styles.anon}>Anonymous</Text>
         <Text style={styles.noteBody}>{post.body}</Text>
         {SHOW_COMMENTS && <Text style={styles.comments}>💬 {post.comments} replies</Text>}
-      </View>
+      </Pressable>
     </MotiView>
   );
 }
 
 export default function PeerForum() {
-  const [posts, setPosts] = useState(SEED);
-  const [draft, setDraft] = useState('');
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [activePost, setActivePost] = useState(null); // note whose thread is open
 
-  const pin = () => {
-    const body = draft.trim();
-    if (!body) return;
-    setPosts((prev) => [{ id: `p-${Date.now()}`, body, comments: 0 }, ...prev]);
-    setDraft('');
-  };
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await listPosts(BOARD);
+      setPosts((data?.posts ?? []).map(normalize).sort(newestFirst));
+    } catch (err) {
+      setError(
+        err?.status === 0
+          ? "Couldn't reach the pinboard — check your connection."
+          : 'Failed to load notes. Please try again.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <Text style={styles.kicker}>WORKER COMMUNITY</Text>
+          <Text style={styles.kicker}>YOUTH PINBOARD · MONITOR</Text>
           <Text style={styles.title}>The Pinboard</Text>
-          <Text style={styles.subtitle}>Anonymous notes between volunteers 🌱</Text>
+          <Text style={styles.subtitle}>Viewing the youth community board 👁 (read-only)</Text>
         </View>
 
         <ScrollView contentContainerStyle={styles.board} showsVerticalScrollIndicator={false}>
-          <View style={[styles.note, styles.compose]}>
-            <View style={styles.pin} />
-            <TextInput
-              style={styles.composeInput}
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Pin an anonymous note…"
-              placeholderTextColor={pastel.sub}
-              multiline
-            />
-            <Pressable onPress={pin} style={styles.pinBtn}>
-              <Text style={styles.pinBtnText}>Pin it</Text>
-            </Pressable>
-          </View>
+          {loading && (
+            <View style={styles.stateBox}>
+              <ActivityIndicator color={pastel.mintDeep} />
+              <Text style={styles.stateText}>Loading notes…</Text>
+            </View>
+          )}
 
-          <View style={styles.grid}>
-            {posts.map((p, i) => (
-              <Note key={p.id} post={p} index={i} />
-            ))}
-          </View>
+          {!loading && error && (
+            <View style={styles.stateBox}>
+              <Text style={styles.stateText}>{error}</Text>
+              <Pressable onPress={load} style={styles.retryBtn}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!loading && !error && posts.length === 0 && (
+            <View style={styles.stateBox}>
+              <Text style={styles.stateText}>No notes on the youth pinboard yet.</Text>
+            </View>
+          )}
+
+          {!loading && !error && (
+            <View style={styles.grid}>
+              {posts.map((p, i) => (
+                <Note key={p.id} post={p} index={i} onPress={() => setActivePost(p)} />
+              ))}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
+
+      <CommentSheet
+        visible={!!activePost}
+        post={activePost}
+        onClose={() => setActivePost(null)}
+        readOnly
+      />
     </View>
   );
 }
@@ -132,8 +168,13 @@ const styles = StyleSheet.create({
   noteBody: { color: pastel.ink, fontSize: 14, lineHeight: 19, fontWeight: '600' },
   comments: { color: pastel.sub, fontSize: 11.5, fontWeight: '700', marginTop: 10 },
 
-  compose: { width: '100%', backgroundColor: pastel.white, marginBottom: 18 },
-  composeInput: { color: pastel.ink, fontSize: 15, minHeight: 48, textAlignVertical: 'top' },
-  pinBtn: { alignSelf: 'flex-end', marginTop: 10, backgroundColor: pastel.mintDeep, paddingHorizontal: 20, paddingVertical: 8, borderRadius: rad.pill },
-  pinBtnText: { color: pastel.white, fontWeight: '900', fontSize: 13 },
+  stateBox: { width: '100%', alignItems: 'center', paddingVertical: 28, gap: 12 },
+  stateText: { color: '#5C4427', fontSize: 14, fontWeight: '700', textAlign: 'center' },
+  retryBtn: {
+    backgroundColor: pastel.mintDeep,
+    paddingHorizontal: 22,
+    paddingVertical: 9,
+    borderRadius: rad.pill,
+  },
+  retryText: { color: pastel.white, fontWeight: '900', fontSize: 13 },
 });

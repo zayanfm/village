@@ -42,6 +42,7 @@ import Book from './Book';
 import BookAnimationController, { JournalState } from './journalAnimationController';
 import { JOURNAL_MOTION } from '../../assets/journal/journalAssets';
 import { savePermanentEntry } from '../../api/journalService';
+import { appendArchiveEntry } from '../../api/journalArchive';
 import { useVolatileTranscript } from '../../context/VolatileTranscriptContext';
 import { pastel, youthRadius as rad } from './youthTheme';
 
@@ -192,6 +193,7 @@ export default function YouthJournalShelf({ navigation }) {
   const [editing, setEditing] = useState(null); // null | { id, variant }
   const [permText, setPermText] = useState(''); // permanent text (non-volatile is fine; it gets saved)
   const [toast, setToast] = useState(null);
+  const [saving, setSaving] = useState(false); // permanent-entry network in flight
 
   const orbit = useRef({ azimuth: 0, base: 0 });
   const projected = useSharedValue([{ x: 0, y: 0, visible: false }, { x: 0, y: 0, visible: false }]);
@@ -257,14 +259,39 @@ export default function YouthJournalShelf({ navigation }) {
 
   // ---- PERMANENT: lock animation + persist via the API ----
   const submitPermanent = async () => {
+    if (saving) return; // guard against double-submit
     const body = permText.trim();
-    controller.beginSeal(JOURNAL_MOTION.lock.durationMs);
-    setEditing(null);
-    if (!body) return;
-    const res = await savePermanentEntry({ body, createdAt: Date.now() });
-    commitJournalEntry({ id: res.entryId, preview: body.slice(0, 48), committedAt: res.committedAt });
-    setPermText('');
-    setToast('Entry sealed to your archive.');
+    if (!body) {
+      controller.beginSeal(JOURNAL_MOTION.lock.durationMs);
+      setEditing(null);
+      return;
+    }
+
+    setSaving(true);
+    setToast('Sealing your entry…');
+    try {
+      const res = await savePermanentEntry({ body, createdAt: Date.now() });
+      // Only commit + animate once the server confirms persistence.
+      controller.beginSeal(JOURNAL_MOTION.lock.durationMs);
+      const entry = { id: res.entryId, preview: body.slice(0, 48), body, committedAt: res.committedAt };
+      commitJournalEntry({ id: entry.id, preview: entry.preview, committedAt: entry.committedAt });
+      // Mirror PERMANENT entries to the on-device archive (never the temporary
+      // journal). A storage hiccup must not fail the seal, so it's fire-and-forget.
+      appendArchiveEntry(entry).catch(() => {});
+      setPermText('');
+      setEditing(null);
+      setToast('Entry sealed to your archive.');
+    } catch (err) {
+      // Network/server failure: keep the draft so the user doesn't lose text.
+      controller.cancel();
+      setToast(
+        err?.status === 0
+          ? "Couldn't reach the server — check your connection and try again."
+          : 'Saving failed. Your entry was kept — please try again.'
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const cancel = () => {
@@ -302,9 +329,18 @@ export default function YouthJournalShelf({ navigation }) {
       </View>
 
       <SafeAreaView style={styles.header} edges={['top']} pointerEvents="box-none">
-        <Pressable onPress={goBack} hitSlop={12} style={styles.back}>
-          <Text style={styles.backText}>‹ Room</Text>
-        </Pressable>
+        <View style={styles.headerTopRow}>
+          <Pressable onPress={goBack} hitSlop={12} style={styles.back}>
+            <Text style={styles.backText}>‹ Room</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => navigation?.navigate('YouthJournalArchive')}
+            hitSlop={12}
+            style={styles.archiveBtn}
+          >
+            <Text style={styles.archiveText}>Archive ▸</Text>
+          </Pressable>
+        </View>
         <Text style={styles.title}>Journaling Shelf</Text>
         <Text style={styles.subtitle}>Tap a journal to write</Text>
       </SafeAreaView>
@@ -339,9 +375,16 @@ export default function YouthJournalShelf({ navigation }) {
               </Pressable>
               <Pressable
                 onPress={isTemp ? submitTemporary : submitPermanent}
-                style={[styles.submitBtn, isTemp ? styles.submitTemp : styles.submitPerm]}
+                disabled={!isTemp && saving}
+                style={[
+                  styles.submitBtn,
+                  isTemp ? styles.submitTemp : styles.submitPerm,
+                  !isTemp && saving && styles.submitDisabled,
+                ]}
               >
-                <Text style={styles.submitText}>{isTemp ? 'Release ✦' : 'Seal 🔒'}</Text>
+                <Text style={styles.submitText}>
+                  {isTemp ? 'Release ✦' : saving ? 'Sealing…' : 'Seal 🔒'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -361,8 +404,16 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#241B2E' },
   fill: { flex: 1 },
   header: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 24, paddingTop: 12 },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   back: { alignSelf: 'flex-start' },
   backText: { color: pastel.amber, fontWeight: '800', fontSize: 15 },
+  archiveBtn: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: rad.pill,
+  },
+  archiveText: { color: pastel.white, fontWeight: '900', fontSize: 13 },
   title: { color: pastel.white, fontWeight: '900', fontSize: 26, marginTop: 6 },
   subtitle: { color: pastel.mint, fontWeight: '700', fontSize: 12.5, marginTop: 2 },
 
@@ -418,6 +469,7 @@ const styles = StyleSheet.create({
   submitBtn: { paddingHorizontal: 22, paddingVertical: 12, borderRadius: rad.pill },
   submitTemp: { backgroundColor: pastel.mintDeep },
   submitPerm: { backgroundColor: pastel.amberDeep },
+  submitDisabled: { opacity: 0.5 },
   submitText: { color: pastel.white, fontWeight: '900', fontSize: 15 },
 
   toast: {

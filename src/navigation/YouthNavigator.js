@@ -21,6 +21,7 @@ import YouthRoomHome from '../screens/youth/YouthRoomHome';
 import YouthAICompanion from '../screens/youth/YouthAICompanion';
 import YouthPinboardForum from '../screens/youth/YouthPinboardForum';
 import YouthJournalShelf from '../screens/youth/YouthJournalShelf';
+import YouthJournalArchive from '../screens/youth/YouthJournalArchive';
 
 const Stack = createNativeStackNavigator();
 
@@ -41,6 +42,7 @@ export default function YouthNavigator() {
       <Stack.Screen name="YouthAICompanion" component={YouthAICompanion} />
       <Stack.Screen name="YouthPinboardForum" component={YouthPinboardForum} />
       <Stack.Screen name="YouthJournalShelf" component={YouthJournalShelf} />
+      <Stack.Screen name="YouthJournalArchive" component={YouthJournalArchive} />
     </Stack.Navigator>
   );
 }
