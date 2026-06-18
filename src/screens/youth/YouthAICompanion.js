@@ -11,7 +11,7 @@
  * Bottom: the clean glassmorphic chat overlay (unchanged sandbox behavior).
  */
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -84,39 +84,45 @@ function UserAvatar() {
   );
 }
 
-/* --------------------------- chat sandbox ----------------------------------- */
+/* --------------------------- chat ------------------------------------------- */
 
-const SEED_THREAD = [
-  { id: 'm1', from: 'bot', text: 'Hey! I’m Sprout 🌱 How are you feeling today?' },
-  { id: 'm2', from: 'me', text: 'A little stressed about exams tbh' },
-  { id: 'm3', from: 'bot', text: 'That’s really valid. Want to try a 2-minute breathing reset together?' },
-];
-const CANNED = [
-  'I hear you 💚 tell me more whenever you’re ready.',
-  'That sounds tough. What helped a little last time?',
-  'You’re doing better than you think. One small step?',
-  'Thanks for sharing that with me 🌱',
-];
+const GREETING = { id: 'm0', from: 'bot', text: "Hey! I'm Sprout 🌱 How are you feeling today?" };
 
 export default function YouthAICompanion({ navigation }) {
-  const [thread, setThread] = useState(SEED_THREAD);
+  const [thread, setThread] = useState([GREETING]);
+  const [history, setHistory] = useState([]);
   const [draft, setDraft] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
   const scroller = useRef();
-  const replyIndex = useRef(0);
-  const isFocused = useIsFocused(); // gate the GL context to this screen's lifetime
+  const isFocused = useIsFocused();
 
-  const send = () => {
+  const scrollToEnd = () => scroller.current?.scrollToEnd({ animated: true });
+
+  const send = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || isTyping) return;
+
     setThread((prev) => [...prev, { id: `me-${Date.now()}`, from: 'me', text }]);
     setDraft('');
-    setTimeout(() => {
-      const reply = CANNED[replyIndex.current % CANNED.length];
-      replyIndex.current += 1;
+    setIsTyping(true);
+    setTimeout(scrollToEnd, 50);
+
+    const nextHistory = [...history, { role: 'user', content: text }];
+
+    try {
+      const { sendMessage } = await import('../../api/chatService');
+      const reply = await sendMessage(text, history);
+      setHistory([...nextHistory, { role: 'assistant', content: reply }]);
       setThread((prev) => [...prev, { id: `bot-${Date.now()}`, from: 'bot', text: reply }]);
-      scroller.current?.scrollToEnd({ animated: true });
-    }, 700);
-    setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 50);
+    } catch {
+      setThread((prev) => [
+        ...prev,
+        { id: `err-${Date.now()}`, from: 'bot', text: 'sorry, I lost the connection for a sec. try again?' },
+      ]);
+    } finally {
+      setIsTyping(false);
+      setTimeout(scrollToEnd, 80);
+    }
   };
 
   return (
@@ -129,7 +135,6 @@ export default function YouthAICompanion({ navigation }) {
             <directionalLight position={[2, 4, 3]} intensity={1.1} castShadow />
             <pointLight position={[-2, 1, 2]} intensity={8} distance={8} color={pastel.neon} />
             <UserAvatar />
-            {/* AI companion = the floating celestial orb (no chair/seat binding) */}
             <OrbCompanion position={[1.05, 0.15, 0]} scale={1.05} />
           </Canvas>
         )}
@@ -164,6 +169,18 @@ export default function YouthAICompanion({ navigation }) {
                 </View>
               </MotiView>
             ))}
+            {isTyping && (
+              <MotiView
+                from={{ opacity: 0, translateY: 8 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ type: 'timing', duration: 200 }}
+                style={[styles.bubbleRow, styles.rowBot]}
+              >
+                <View style={[styles.bubble, styles.bubbleBot]}>
+                  <Text style={styles.bubbleText}>• • •</Text>
+                </View>
+              </MotiView>
+            )}
           </ScrollView>
 
           <SafeAreaView edges={['bottom']}>
@@ -177,7 +194,7 @@ export default function YouthAICompanion({ navigation }) {
                 onSubmitEditing={send}
                 returnKeyType="send"
               />
-              <Pressable onPress={send} style={styles.sendBtn}>
+              <Pressable onPress={send} style={[styles.sendBtn, isTyping && { opacity: 0.4 }]} disabled={isTyping}>
                 <Text style={styles.sendText}>↑</Text>
               </Pressable>
             </View>
