@@ -29,6 +29,7 @@ import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import OrbCompanion from './OrbCompanion';
 import { pastel, youthRadius as rad } from './youthTheme';
+import { sendMessage } from '../../api/chatService';
 
 /* --------------------------- User Avatar ------------------------------------ */
 
@@ -110,11 +111,11 @@ export default function YouthAICompanion({ navigation }) {
     const nextHistory = [...history, { role: 'user', content: text }];
 
     try {
-      const { sendMessage } = await import('../../api/chatService');
       const reply = await sendMessage(text, history);
       setHistory([...nextHistory, { role: 'assistant', content: reply }]);
       setThread((prev) => [...prev, { id: `bot-${Date.now()}`, from: 'bot', text: reply }]);
-    } catch {
+    } catch (err) {
+      console.error('[Sprout] chat error:', err);
       setThread((prev) => [
         ...prev,
         { id: `err-${Date.now()}`, from: 'bot', text: 'sorry, I lost the connection for a sec. try again?' },
