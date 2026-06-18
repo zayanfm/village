@@ -3,24 +3,25 @@ import { baseUrl } from './config';
 const BASE = baseUrl('ai');
 
 /**
- * Send a message to the AI companion.
+ * Send the full message history to Sprout and get a reply.
  *
- * @param {string} message - the user's latest message
- * @param {Array<{role: 'user'|'assistant', content: string}>} history - prior turns
- * @returns {Promise<string>} - the assistant's reply
+ * @param {Array<{role: 'user'|'assistant', content: string}>} messages
+ * @returns {Promise<string>}
  */
-export async function sendMessage(message, history = []) {
+export async function sendMessage(messages = []) {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ messages }),
   });
 
+  const data = await res.json().catch(() => ({}));
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? `AI service error ${res.status}`);
+    // Backend may send a fallback reply even on 500 — use it if present
+    if (data.reply) return data.reply;
+    throw new Error(data.error ?? `AI service error ${res.status}`);
   }
 
-  const data = await res.json();
-  return data.reply;
+  return data.reply ?? '';
 }

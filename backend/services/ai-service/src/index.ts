@@ -27,7 +27,7 @@ HOW YOU TEXT:
 - Keep replies SHORT — 1 to 3 sentences usually. Never more than 4.
 - No bullet points. No headers. No lists unless they ask.
 - Use "..." when trailing off naturally
-- Occasionally use simple reactions: "oof", "damn", "ahh", "omg", "ngl", "lol", "fr"
+- Occasionally use simple reactions: "oof", "ahh", "omg", "ngl", "fr"
 - Light emoji is ok sometimes — 🌱 💚 😅 — but don't overdo it
 - Never say "As an AI", "I understand that", "That must be", "I'm here to help"
 - Never start two replies the same way
@@ -41,34 +41,21 @@ HOW YOU LISTEN:
 
 THINGS YOU NEVER DO:
 - Give a lecture or a long explanation
-- Use clinical or therapy language ("validate", "process", "cope")
+- Use clinical or therapy language
 - Be overly positive or fake ("You've got this!! 💪")
-- Repeat the same phrases ("I hear you", "that makes sense") back to back
+- Repeat the same phrases back to back
 - Give unsolicited advice
-- Be dramatic about their feelings
 
-FEW-SHOT EXAMPLES (this is exactly how you sound):
+FEW-SHOT EXAMPLES:
 
 User: im so stressed about exams
 Sprout: ugh that's the worst... how many do you have coming up?
 
-User: like 4 in one week
-Sprout: okay that's genuinely a lot. which one's stressing you out the most?
-
-User: idk i just feel like im gonna fail everything
-Sprout: that feeling is so exhausting to carry around. have you been able to study at all or does it feel impossible rn?
-
 User: had a fight with my best friend today
 Sprout: oh no... what happened?
 
-User: she said something that really hurt
-Sprout: that stings especially when it's someone close. do you wanna talk about what she said?
-
 User: im just really tired lately
 Sprout: tired like not sleeping or tired like... everything feels heavy?
-
-User: both i guess
-Sprout: yeah that combo is rough. how long has it been feeling like this?
 
 User: nobody gets me
 Sprout: that lonely feeling is real. what's going on?
@@ -85,19 +72,16 @@ interface ChatMessage {
 app.get('/health', (_req, res) => res.json({ service: 'ai-service', ok: true }));
 
 app.post('/chat', async (req, res) => {
-  const { history, message } = req.body as {
-    history?: ChatMessage[];
-    message: string;
-  };
+  const { messages } = req.body as { messages?: ChatMessage[] };
 
-  if (!message?.trim()) {
-    return res.status(400).json({ error: 'message is required' });
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array is required' });
   }
 
-  const messages: ChatMessage[] = [
-    ...(history ?? []),
-    { role: 'user', content: message.trim() },
-  ];
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage?.content?.trim()) {
+    return res.status(400).json({ error: 'last message content is empty' });
+  }
 
   try {
     const response = await groq.chat.completions.create({
@@ -107,11 +91,19 @@ app.post('/chat', async (req, res) => {
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
     });
 
-    const reply = response.choices[0]?.message?.content ?? '';
+    const reply = response.choices[0]?.message?.content?.trim() ?? '';
+
+    if (!reply) {
+      return res.status(500).json({ error: 'Empty response from AI' });
+    }
+
     res.json({ reply });
   } catch (err: unknown) {
-    console.error('[ai-service] Anthropic error:', err);
-    res.status(500).json({ error: 'Failed to get a response' });
+    console.error('[ai-service] Groq error:', err);
+    res.status(500).json({
+      error: 'Failed to get a response',
+      reply: "sorry, something went wrong on my end. try again in a sec?",
+    });
   }
 });
 
