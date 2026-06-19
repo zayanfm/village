@@ -32,6 +32,7 @@ export const SERVICE_PORTS = {
   journaling: 4003,
   engagement: 4004,
   calendar: 4005,
+  ai: 4006,
 };
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '0.0.0.0', '']);

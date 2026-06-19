@@ -17,7 +17,8 @@
       "Bash(curl -s -m 280 \"http://localhost:8081/node_modules/expo/AppEntry.bundle?platform=android&dev=true&minify=false\" -o /tmp/ae54.out -w \"HTTP %{http_code}, %{size_download} bytes\\\\n\")",
       "mcp__a8de9cab-235b-42bd-a74a-ca03bfcbf85a__learn_threejs",
       "Bash(powershell -Command \"Start-Sleep -Seconds 12\")",
-      "Bash(powershell -Command \"Start-Sleep -Seconds 10\")"
+      "Bash(powershell -Command \"Start-Sleep -Seconds 10\")",
+      "Bash(dir backend/services/ai-service/)"
     ]
   }
 }
