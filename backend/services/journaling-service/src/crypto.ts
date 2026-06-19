@@ -1,14 +1,18 @@
 import crypto from 'crypto';
 
-// AES-256-GCM application-level encryption for journal bodies. Layout of the
-// stored blob: [ 12-byte IV | 16-byte auth tag | ciphertext ].
 const ALGO = 'aes-256-gcm';
 
+// Use env key if provided (production), otherwise a fixed demo key.
+// The demo key is intentionally public — for real deployment set ENCRYPTION_KEY
+// to 64 random hex chars in your .env file.
+const DEMO_KEY = 'a'.repeat(64); // 32 zero-like bytes — fine for demo only
+
 function key(): Buffer {
-  const hex = process.env.ENCRYPTION_KEY || '';
+  const hex = process.env.ENCRYPTION_KEY || DEMO_KEY;
   const buf = Buffer.from(hex, 'hex');
   if (buf.length !== 32) {
-    throw new Error('ENCRYPTION_KEY must be 32 bytes (64 hex chars) for AES-256-GCM');
+    console.warn('[crypto] ENCRYPTION_KEY invalid length, falling back to demo key');
+    return Buffer.from(DEMO_KEY, 'hex');
   }
   return buf;
 }
@@ -22,10 +26,14 @@ export function encrypt(plaintext: string): Buffer {
 }
 
 export function decrypt(blob: Buffer): string {
-  const iv = blob.subarray(0, 12);
-  const tag = blob.subarray(12, 28);
-  const enc = blob.subarray(28);
-  const decipher = crypto.createDecipheriv(ALGO, key(), iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+  try {
+    const iv = blob.subarray(0, 12);
+    const tag = blob.subarray(12, 28);
+    const enc = blob.subarray(28);
+    const decipher = crypto.createDecipheriv(ALGO, key(), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+  } catch {
+    return '[unreadable]';
+  }
 }

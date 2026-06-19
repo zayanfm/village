@@ -43,4 +43,10 @@ export async function savePermanentEntry(entry) {
   };
 }
 
-export default { savePermanentEntry };
+export async function listRemoteEntries(youthId = DEMO_YOUTH_ID) {
+  const url = `${baseUrl('journaling')}/youth/${youthId}/entries`;
+  const data = await http.get(url);
+  return Array.isArray(data.entries) ? data.entries : [];
+}
+
+export default { savePermanentEntry, listRemoteEntries };

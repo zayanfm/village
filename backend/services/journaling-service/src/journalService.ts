@@ -1,33 +1,25 @@
 import { PrismaClient } from '@prisma/client';
-import { redis, draftKey } from './redis';
 import { encrypt, decrypt } from './crypto';
 
 const prisma = new PrismaClient();
-const DRAFT_TTL_SECONDS = 900; // 15 min safety expiry on volatile drafts
 
-/* ─────────────────────────── TEMPORARY (volatile) ─────────────────────────
- * Lives ONLY in the Redis cache. No code path copies it to Postgres. */
+/* ── Temporary draft (in-memory — volatile by design) ───────────────────── */
 
-export async function setTemporaryDraft(youthId: string, text: string): Promise<void> {
-  await redis.set(draftKey(youthId), text, 'EX', DRAFT_TTL_SECONDS);
+const drafts = new Map<string, string>();
+
+export function setTemporaryDraft(youthId: string, text: string): void {
+  drafts.set(youthId, text);
 }
 
-export async function getTemporaryDraft(youthId: string): Promise<string | null> {
-  return redis.get(draftKey(youthId));
+export function getTemporaryDraft(youthId: string): string | null {
+  return drafts.get(youthId) ?? null;
 }
 
-/**
- * flushJournalDraft — purge the volatile draft from Redis the instant "Submit"
- * fires (or on cancel/timeout). This is the backend twin of the frontend
- * VolatileTranscriptContext.flushJournalDraft(): after it returns, no trace of
- * the temporary entry remains anywhere.
- */
-export async function flushJournalDraft(youthId: string): Promise<void> {
-  await redis.del(draftKey(youthId));
+export function flushJournalDraft(youthId: string): void {
+  drafts.delete(youthId);
 }
 
-/* ─────────────────────────── PERMANENT (durable) ──────────────────────────
- * Encrypted-at-rest in Postgres. The ONLY function that persists journal text. */
+/* ── Permanent entries (encrypted, stored in Supabase PostgreSQL) ────────── */
 
 export async function savePermanentEntry(ownerId: string, body: string) {
   const entry = await prisma.journalEntry.create({
@@ -41,9 +33,20 @@ export async function savePermanentEntry(ownerId: string, body: string) {
   return { id: entry.id, entryRef: entry.entryRef, sealedAt: entry.sealedAt };
 }
 
+export async function listEntries(ownerId: string) {
+  const entries = await prisma.journalEntry.findMany({
+    where: { ownerId },
+    orderBy: { sealedAt: 'desc' },
+  });
+  return entries.map((e) => ({
+    id: e.entryRef ?? e.id,
+    preview: e.preview ?? '',
+    body: decrypt(e.bodyEnc as Buffer),
+    committedAt: new Date(e.sealedAt).getTime(),
+  }));
+}
+
 export async function readPermanentEntry(id: string): Promise<string | null> {
   const entry = await prisma.journalEntry.findUnique({ where: { id } });
   return entry ? decrypt(entry.bodyEnc as Buffer) : null;
 }
-
-export { prisma };
