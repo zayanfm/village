@@ -5,7 +5,11 @@
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios"
+    "ios": "expo start --ios",
+    "dev:ai": "npm run dev --prefix backend/services/ai-service",
+    "dev:backend": "concurrently --kill-others-on-fail --prefix-colors \"bgBlue,bgGreen,bgYellow,bgMagenta,bgCyan,bgRed\" --names \"USER,HOUSE,JOURNAL,ENGAGE,CAL,AI\" \"npm run dev --prefix backend/services/user-service\" \"npm run dev --prefix backend/services/house-service\" \"npm run dev --prefix backend/services/journaling-service\" \"npm run dev --prefix backend/services/engagement-service\" \"npm run dev --prefix backend/services/calendar-service\" \"npm run dev --prefix backend/services/ai-service\"",
+    "dev:youth": "powershell -ExecutionPolicy Bypass -File scripts/dev-youth.ps1",
+    "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev-all.ps1"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -32,6 +36,7 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "babel-preset-expo": "~54.0.10",
+    "concurrently": "^10.0.3",
     "typescript": "~5.9.2"
   },
   "overrides": {

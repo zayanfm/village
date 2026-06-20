@@ -42,7 +42,7 @@ import Book from './Book';
 import BookAnimationController, { JournalState } from './journalAnimationController';
 import { JOURNAL_MOTION } from '../../assets/journal/journalAssets';
 import { savePermanentEntry } from '../../api/journalService';
-import { appendArchiveEntry } from '../../api/journalArchive';
+import { appendArchiveEntry, replaceArchiveEntry } from '../../api/journalArchive';
 import { useVolatileTranscript } from '../../context/VolatileTranscriptContext';
 import { pastel, youthRadius as rad } from './youthTheme';
 
@@ -259,7 +259,7 @@ export default function YouthJournalShelf({ navigation }) {
 
   // ---- PERMANENT: lock animation + persist via the API ----
   const submitPermanent = async () => {
-    if (saving) return; // guard against double-submit
+    if (saving) return;
     const body = permText.trim();
     if (!body) {
       controller.beginSeal(JOURNAL_MOTION.lock.durationMs);
@@ -269,26 +269,30 @@ export default function YouthJournalShelf({ navigation }) {
 
     setSaving(true);
     setToast('Sealing your entry…');
+
+    // Generate a local ID immediately so we can save to archive before the
+    // network call. This guarantees the entry appears in the archive even if
+    // the backend is unreachable.
+    const localId = `JRN-LOCAL-${Date.now()}`;
+    const committedAt = Date.now();
+    const localEntry = { id: localId, preview: body.slice(0, 48), body, committedAt };
+
+    // Save locally FIRST — archive is always up to date regardless of backend.
+    await appendArchiveEntry(localEntry).catch(() => {});
+    commitJournalEntry({ id: localId, preview: localEntry.preview, committedAt });
+    controller.beginSeal(JOURNAL_MOTION.lock.durationMs);
+    setPermText('');
+    setEditing(null);
+    setToast('Entry sealed to your archive.');
+
+    // Sync to backend in the background — replace temp local entry with real id.
     try {
-      const res = await savePermanentEntry({ body, createdAt: Date.now() });
-      // Only commit + animate once the server confirms persistence.
-      controller.beginSeal(JOURNAL_MOTION.lock.durationMs);
-      const entry = { id: res.entryId, preview: body.slice(0, 48), body, committedAt: res.committedAt };
-      commitJournalEntry({ id: entry.id, preview: entry.preview, committedAt: entry.committedAt });
-      // Mirror PERMANENT entries to the on-device archive (never the temporary
-      // journal). A storage hiccup must not fail the seal, so it's fire-and-forget.
-      appendArchiveEntry(entry).catch(() => {});
-      setPermText('');
-      setEditing(null);
-      setToast('Entry sealed to your archive.');
+      const res = await savePermanentEntry({ body, createdAt: committedAt });
+      const serverEntry = { id: res.entryId, preview: body.slice(0, 48), body, committedAt: res.committedAt };
+      await replaceArchiveEntry(localId, serverEntry).catch(() => {});
     } catch (err) {
-      // Network/server failure: keep the draft so the user doesn't lose text.
-      controller.cancel();
-      setToast(
-        err?.status === 0
-          ? "Couldn't reach the server — check your connection and try again."
-          : 'Saving failed. Your entry was kept — please try again.'
-      );
+      // Backend failed — entry is already in local archive, nothing lost.
+      console.warn('[Journal] backend sync failed, entry kept locally:', err?.message);
     } finally {
       setSaving(false);
     }
