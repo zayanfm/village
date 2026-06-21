@@ -13,7 +13,7 @@
  * `youthHouseConfig` — the same template destined for the worker map.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, PanResponder } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -22,6 +22,8 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } fr
 import { LinearGradient } from 'expo-linear-gradient';
 import * as THREE from 'three';
 import YouthHouseMesh from './YouthHouseMesh';
+import { useYouthSession } from '../../context/YouthSessionContext';
+import { syncHouseConfig } from '../../api/firestoreService';
 import {
   COLOR_THEMES,
   COLOR_THEME_NAMES,
@@ -171,7 +173,19 @@ function Chip({ label, active, onPress }) {
 export default function YouthExteriorEdit({ navigation }) {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  const { firestoreId, houseConfig: savedConfig, isGuest, updateLocalHouseConfig } = useYouthSession();
+
+  const { isLinkedToWorker, linkResolved, userName } = useYouthSession();
+
+  // Seed with default initially; re-seed when background lookup resolves
+  // and delivers a saved houseConfig from the worker's Firestore profile.
   const [cfg, setCfg] = useState(defaultYouthHouseConfig);
+
+  useEffect(() => {
+    if (linkResolved && savedConfig) {
+      setCfg({ ...defaultYouthHouseConfig, ...savedConfig });
+    }
+  }, [linkResolved, firestoreId]);
   const control = useRef({ target: { x: 0, z: 0 }, radius: 5, azimuth: 0, polar: 0.7, base: null, pinch: null, applying: false, applyTarget: 11 });
   const navigatedRef = useRef(false);
 
@@ -258,6 +272,13 @@ export default function YouthExteriorEdit({ navigation }) {
   const applyChanges = () => {
     control.current.applying = true;
     control.current.radius = control.current.applyTarget; // dolly out
+
+    // Sync the new houseConfig to Firestore so the worker's village map
+    // updates in real-time. Fire-and-forget — never blocks the UI.
+    if (firestoreId && !isGuest) {
+      syncHouseConfig(firestoreId, cfg);
+      updateLocalHouseConfig(cfg); // update the session cache immediately
+    }
   };
   const goInside = () => {
     if (navigatedRef.current) return;
@@ -282,7 +303,15 @@ export default function YouthExteriorEdit({ navigation }) {
 
         <SafeAreaView style={styles.header} edges={['top']} pointerEvents="box-none">
           <Text style={styles.kicker}>MY HOME · drag · pinch · pan</Text>
-          <Text style={styles.title}>Make it yours</Text>
+          <Text style={styles.title}>{userName ? `${userName}'s home` : 'Make it yours'}</Text>
+          {/* Link status badge — shown once the background lookup has resolved */}
+          {linkResolved && (
+            <View style={[styles.linkBadge, isLinkedToWorker ? styles.linkBadgeLinked : styles.linkBadgeSandbox]}>
+              <Text style={styles.linkBadgeText}>
+                {isLinkedToWorker ? '🔗 Linked to your care team' : '📦 Sandbox — exploring freely'}
+              </Text>
+            </View>
+          )}
         </SafeAreaView>
       </View>
 
@@ -365,6 +394,20 @@ const styles = StyleSheet.create({
   header: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 24, paddingTop: 16 },
   kicker: { color: pastel.mintDeep, fontWeight: '800', fontSize: 12, letterSpacing: 0.6 },
   title: { color: pastel.ink, fontWeight: '900', fontSize: 28, marginTop: 2 },
+  linkBadge: {
+    alignSelf: 'flex-start', marginTop: 8,
+    paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: 999, borderWidth: 1,
+  },
+  linkBadgeLinked: {
+    backgroundColor: 'rgba(110,231,183,0.22)',
+    borderColor: 'rgba(72,187,120,0.55)',
+  },
+  linkBadgeSandbox: {
+    backgroundColor: 'rgba(251,211,141,0.28)',
+    borderColor: 'rgba(214,158,46,0.45)',
+  },
+  linkBadgeText: { fontSize: 11.5, fontWeight: '800', color: pastel.ink },
 
   dock: {
     backgroundColor: DOCK_BG,

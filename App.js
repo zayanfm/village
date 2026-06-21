@@ -20,6 +20,7 @@ import RootNavigator from './src/navigation/RootNavigator';
 // Youth-portal preview: swap <RootNavigator /> for <YouthNavigator /> below.
 import YouthNavigator from './src/navigation/YouthNavigator';
 import { VolatileTranscriptProvider } from './src/context/VolatileTranscriptContext';
+import { YouthSessionProvider } from './src/context/YouthSessionContext';
 import { palette } from './src/theme/theme';
 
 const navTheme = {
@@ -32,11 +33,13 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <VolatileTranscriptProvider>
-          <NavigationContainer theme={navTheme}>
-            <StatusBar style="light" />
-            {/* Youth side. For worker/volunteer preview use: <RootNavigator /> */}
-            <YouthNavigator />
-          </NavigationContainer>
+          <YouthSessionProvider>
+            <NavigationContainer theme={navTheme}>
+              <StatusBar style="light" />
+              {/* Worker/volunteer side. For youth preview use: <YouthNavigator /> */}
+              <YouthNavigator />
+            </NavigationContainer>
+          </YouthSessionProvider>
         </VolatileTranscriptProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

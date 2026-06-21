@@ -23,6 +23,7 @@ import Calendar from '../screens/volunteer/Calendar';
 import FutureFeature from '../screens/volunteer/FutureFeature';
 import YouthCaseDetail from '../screens/volunteer/YouthCaseDetail';
 import CaseManagementForm from '../screens/worker/CaseManagementForm';
+import NewYouthForm from '../screens/volunteer/NewYouthForm';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -56,6 +57,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Tabs" component={MainTabs} />
       <Stack.Screen name="YouthCaseDetail" component={YouthCaseDetail} />
       <Stack.Screen name="CaseManagementForm" component={CaseManagementForm} />
+      <Stack.Screen name="NewYouthForm" component={NewYouthForm} />
     </Stack.Navigator>
   );
 }

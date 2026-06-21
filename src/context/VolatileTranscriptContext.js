@@ -16,8 +16,38 @@
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { anonymizeLines } from './EphemeralDataScrubContext';
 
 const VolatileTranscriptContext = createContext(null);
+
+/**
+ * Compute concrete Date boundaries from a preset string.
+ * Returns { rangeStart: Date, rangeEnd: Date }.
+ */
+export function resolveDatePreset(preset, customStart, customEnd) {
+  const now = new Date();
+  switch (preset) {
+    case 'last24h': {
+      const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      return { rangeStart: start, rangeEnd: now };
+    }
+    case '3days': {
+      const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+      return { rangeStart: start, rangeEnd: now };
+    }
+    case 'pastWeek': {
+      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return { rangeStart: start, rangeEnd: now };
+    }
+    case 'custom':
+      return {
+        rangeStart: customStart ? new Date(customStart) : null,
+        rangeEnd: customEnd ? new Date(customEnd) : null,
+      };
+    default:
+      return { rangeStart: null, rangeEnd: null };
+  }
+}
 
 // Sanitized, NON-PII seed history. Safe to retain under the PDPA simulation.
 const SEED_HISTORIES = {
@@ -43,6 +73,9 @@ export function VolatileTranscriptProvider({ children }) {
   const [rawTextLines, setRawTextLines] = useState(null); // unparsed transcript lines
   const [editableDraft, setEditableDraft] = useState(null); // unedited / in-progress AI draft
   const [journalDraft, setJournalDraft] = useState(null); // Journaling Bookshelf: temporary entry text (volatile)
+  // importConfig holds the file + time-range selection made in ImportConfigModal.
+  // Lives entirely in volatile memory — flushed by flushState() alongside the transcript.
+  const [importConfig, setImportConfig] = useState(null);
 
   // ---- SAFE / RETAINED STATE (sanitized summaries only) ----
   const [caseHistories, setCaseHistories] = useState(SEED_HISTORIES);
@@ -52,29 +85,81 @@ export function VolatileTranscriptProvider({ children }) {
    * Simulate ingesting a raw transcript from a source (Telegram / WhatsApp)
    * and generating an unedited AI draft. Everything written here is volatile.
    */
-  const ingestTranscript = useCallback((source, payload) => {
-    const lines = payload?.lines ?? [];
-    setTranscriptBuffer({ source, receivedAt: Date.now(), payload });
-    setRawTextLines(lines);
+  /**
+   * Simulate ingesting a raw transcript from a source (Telegram / WhatsApp).
+   * @param {string} source
+   * @param {object} payload
+   * @param {object|null} cfg — the import config from ImportConfigModal (platform,
+   *   fileName, rangePreset, rangeStart, rangeEnd). Stored volatile; flushed on purge.
+   */
+  /**
+   * Simulate ingesting a raw transcript from a source (Telegram / WhatsApp).
+   *
+   * Privacy pipeline (runs entirely in local memory before any state is set):
+   *   1. anonymizeLines() — two-pass scrubber strips phones, NRICs, and real
+   *      sender names, replacing them with [PHONE_REDACTED], [NRIC_REDACTED],
+   *      and stable [USER_X] tokens.
+   *   2. Raw lines are stored ONLY inside transcriptBuffer (never displayed).
+   *   3. rawTextLines receives the scrubbed output — the only version any UI sees.
+   *   4. editableDraft.interventionPlan is seeded with the primary youth token
+   *      so no real name leaks into the editable template fields.
+   *
+   * @param {string} source
+   * @param {object} payload
+   * @param {object|null} cfg — import config from ImportConfigModal
+   */
+  const ingestTranscript = useCallback((source, payload, cfg = null) => {
+    const rawLines = payload?.lines ?? [];
 
-    // Simulated "AI generated" first-pass draft seeded from the raw payload.
+    // ── PDPA anonymization pass ──────────────────────────────────────────────
+    const { scrubbedLines, nameTable, stats } = anonymizeLines(rawLines);
+
+    // Determine the primary youth token (first [USER_X] discovered in the
+    // transcript) so the intervention plan draft never references a real name.
+    const youthToken = Object.values(nameTable)[0] ?? '[USER_A]';
+
+    // Raw lines stay inside transcriptBuffer only — never rendered to screen.
+    setTranscriptBuffer({ source, receivedAt: Date.now(), payload, scrubStats: stats });
+    // UI always receives the scrubbed version.
+    setRawTextLines(scrubbedLines);
+    setImportConfig(cfg);
+
+    // Simulated "AI generated" first-pass draft seeded from scrubbed payload.
     setEditableDraft({
       youthName: payload?.youthName ?? 'Unknown Youth',
       caseId: payload?.caseId ?? '#H-000',
       membershipStatus: payload?.membershipStatus ?? 'Active Member',
       sessionDate: new Date().toISOString().slice(0, 10),
       issues: {
-        'School Stress': true,
-        'Peer Conflict': false,
-        'Family Tension': false,
-        'Low Mood': true,
-        'Sleep Disruption': false,
+        'Academic pressure or school-related stress': true,
+        'Conflict with peers or classmates': false,
+        'Family conflict or home environment concerns': false,
+        'Low mood, sadness, or emotional withdrawal': true,
+        'Sleep difficulties or disrupted rest patterns': false,
+        'Social isolation or feelings of loneliness': false,
+        'Anxiety or persistent worry': false,
+        'Self-esteem or identity-related concerns': false,
       },
+      // Intervention plan uses [USER_X] token — no real name is ever written here.
       interventionPlan:
-        'Draft (AI generated): Youth described pressure around upcoming exams. ' +
-        'Suggested grounding exercises and a follow-up check-in. Review and edit before export.',
-      riskRating: 0.4, // 0 (low) -> 1 (high)
+        `Draft (AI generated): ${youthToken} described pressure around upcoming exams. ` +
+        'Suggested grounding exercises and a follow-up check-in. ' +
+        `All personal identifiers have been stripped (${stats.replacements.name} name(s), ` +
+        `${stats.replacements.phone} phone(s), ${stats.replacements.nric} NRIC(s) redacted). ` +
+        'Review and edit before export.',
+      riskRating: 0.4,
       sourceLabel: source,
+      workerName: 'Alex Tan',
+      age: '',
+      location: source, // WhatsApp or Telegram — editable if needed
+      // Scrub audit — visible in form header, flushed on purge.
+      scrubStats: stats,
+      nameTable,
+      // Time-range metadata from the import config.
+      rangeStart: cfg?.rangeStart ?? null,
+      rangeEnd: cfg?.rangeEnd ?? null,
+      rangePreset: cfg?.rangePreset ?? null,
+      fileName: cfg?.fileName ?? null,
     });
   }, []);
 
@@ -107,6 +192,7 @@ export function VolatileTranscriptProvider({ children }) {
     setRawTextLines(null);
     setEditableDraft(null);
     setJournalDraft(null);
+    setImportConfig(null); // PDPA: wipe file path, date selections, raw config
   }, []);
 
   /**
@@ -131,6 +217,7 @@ export function VolatileTranscriptProvider({ children }) {
       rawTextLines,
       editableDraft,
       journalDraft,
+      importConfig,
       // retained sanitized data
       caseHistories,
       journalEntries,
@@ -149,6 +236,7 @@ export function VolatileTranscriptProvider({ children }) {
       rawTextLines,
       editableDraft,
       journalDraft,
+      importConfig,
       caseHistories,
       journalEntries,
       ingestTranscript,

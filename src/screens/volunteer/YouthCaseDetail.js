@@ -1,18 +1,18 @@
 /**
- * YouthCaseDetail.js — Case main page & import journey
+ * YouthCaseDetail.js — Case main page & Path A import journey.
  *
- * - Historic view: a chronological list of past *anonymized* case summaries
- *   pulled from retained (sanitized) history in the volatile context.
- * - Action interface: an "Import New Chat" button that opens an organic ripple
- *   modal to choose an ingestion source (Telegram / WhatsApp). Selecting a
- *   source simulates ingestion, fills the volatile buffer, and routes straight
- *   to CaseManagementForm.
+ * Receives `firestoreId` from VolunteerHome and carries it through to
+ * CaseManagementForm so the export knows to append a session to an existing
+ * youth_profiles doc rather than create a new root document.
+ *
+ * The "Importing interactions for: [name]" context banner is shown inside the
+ * ImportConfigModal header so the worker always knows whose data they are
+ * processing.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,8 +25,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import GardenBackground from '../../components/GardenBackground';
 import GlassCard from '../../components/GlassCard';
 import MiniRoomPreview from '../youth/MiniRoomPreview';
+import ImportConfigModal from './ImportConfigModal';
 import { useVolatileTranscript } from '../../context/VolatileTranscriptContext';
 import { importChatFromSource } from '../../api/ingestionService';
+import { fetchYouthProfile } from '../../api/firestoreService';
 import { gradients, palette, radius, spacing, typography } from '../../theme/theme';
 
 function HistoryRow({ entry, index }) {
@@ -49,34 +51,56 @@ function HistoryRow({ entry, index }) {
   );
 }
 
-function SourceButton({ label, glyph, onPress }) {
-  return (
-    <Pressable onPress={onPress} style={styles.sourceWrap}>
-      <LinearGradient colors={gradients.leaf} style={styles.sourceBtn}>
-        <Text style={styles.sourceGlyph}>{glyph}</Text>
-        <Text style={styles.sourceLabel}>{label}</Text>
-      </LinearGradient>
-    </Pressable>
-  );
-}
-
 export default function YouthCaseDetail({ route, navigation }) {
-  const { caseId = '#H-008', youthName = 'Hana M.', caseKey = 'H-008', youthHouseConfig } = route.params ?? {};
+  const {
+    caseId = '#H-008',
+    youthName = 'Hana M.',
+    caseKey = 'H-008',
+    firestoreId = null,   // ← null for seed cases; real ID for Firestore profiles
+    youthHouseConfig,
+  } = route.params ?? {};
+
   const { caseHistories, ingestTranscript } = useVolatileTranscript();
   const [modalOpen, setModalOpen] = useState(false);
-  const [loadingSource, setLoadingSource] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+
+  const openEditForm = useCallback(async () => {
+    setEditLoading(true);
+    // Fetch full profile to pre-populate the edit form (phone, age, status, etc.)
+    const profile = firestoreId ? await fetchYouthProfile(firestoreId) : null;
+    setEditLoading(false);
+    navigation.navigate('NewYouthForm', {
+      editMode: true,
+      firestoreId,
+      currentData: profile ?? { name: youthName, caseId },
+    });
+  }, [firestoreId, youthName, caseId, navigation]);
 
   const histories = caseHistories[caseKey] ?? [];
 
-  const handleImport = async (source) => {
-    setLoadingSource(source);
-    // Simulated ingestion -> volatile buffer only.
-    const payload = await importChatFromSource(source, { youthName, caseId });
-    ingestTranscript(source, payload);
-    setLoadingSource(null);
+  const handleConfirm = async (cfg) => {
+    setGenerating(true);
+
+    let payload;
+    if (cfg.rawLines?.length) {
+      payload = {
+        source: cfg.platform,
+        youthName,
+        caseId,
+        membershipStatus: 'Active Member',
+        lines: cfg.rawLines,
+      };
+    } else {
+      payload = await importChatFromSource(cfg.platform, { youthName, caseId });
+    }
+
+    ingestTranscript(cfg.platform, payload, cfg);
+    setGenerating(false);
     setModalOpen(false);
-    // Route immediately into the editable AI template.
-    navigation.navigate('CaseManagementForm', { caseKey, caseId, youthName });
+
+    // firestoreId is forwarded so CaseManagementForm can execute Path A
+    navigation.navigate('CaseManagementForm', { caseKey, caseId, youthName, firestoreId });
   };
 
   return (
@@ -84,13 +108,32 @@ export default function YouthCaseDetail({ route, navigation }) {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back}>
-            <Text style={styles.backText}>‹ Garden</Text>
+            <Text style={styles.backText}>‹ Village</Text>
           </Pressable>
 
-          <Text style={styles.kicker}>CASE {caseId}</Text>
-          <Text style={styles.title}>{youthName}</Text>
+          <View style={styles.titleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.kicker}>CASE {caseId}</Text>
+              <Text style={styles.title}>{youthName}</Text>
+            </View>
+            {firestoreId && (
+              <Pressable onPress={openEditForm} disabled={editLoading} style={styles.editBtn}>
+                {editLoading
+                  ? <ActivityIndicator color={palette.mint} size="small" />
+                  : <Text style={styles.editBtnText}>✎ Edit</Text>
+                }
+              </Pressable>
+            )}
+          </View>
 
-          {/* Read-only mirror of the youth's customized Bondee room */}
+          {/* Path A context pill — confirms whose file is open */}
+          <View style={styles.contextPill}>
+            <View style={styles.contextDot} />
+            <Text style={styles.contextText}>
+              {firestoreId ? 'Live profile · interactions will be appended' : 'Local profile (offline mode)'}
+            </Text>
+          </View>
+
           <Text style={styles.sectionLabel}>THEIR SPACE</Text>
           <MiniRoomPreview youthHouseConfig={youthHouseConfig} height={230} />
 
@@ -113,48 +156,19 @@ export default function YouthCaseDetail({ route, navigation }) {
               end={{ x: 1, y: 1 }}
               style={styles.importBtn}
             >
-              <Text style={styles.importText}>+  Import New Chat</Text>
+              <Text style={styles.importText}>↑  Import New Interactions</Text>
             </LinearGradient>
           </Pressable>
         </ScrollView>
       </SafeAreaView>
 
-      {/* Organic ripple modal for choosing an ingestion source */}
-      <Modal transparent visible={modalOpen} animationType="fade" onRequestClose={() => setModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => !loadingSource && setModalOpen(false)}>
-          {/* expanding ripple rings */}
-          <MotiView
-            from={{ opacity: 0.4, scale: 0.2 }}
-            animate={{ opacity: 0, scale: 2.4 }}
-            transition={{ type: 'timing', duration: 1600, loop: true }}
-            style={styles.ripple}
-          />
-          <MotiView
-            from={{ opacity: 0, translateY: 24, scale: 0.95 }}
-            animate={{ opacity: 1, translateY: 0, scale: 1 }}
-            transition={{ type: 'spring', damping: 16, stiffness: 180 }}
-          >
-            <GlassCard radiusSize={radius.xl} style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Choose ingestion source</Text>
-              <Text style={styles.modalSub}>
-                The transcript is held in volatile memory only.
-              </Text>
-
-              {loadingSource ? (
-                <View style={styles.loadingBox}>
-                  <ActivityIndicator color={palette.mint} />
-                  <Text style={styles.loadingText}>Ingesting from {loadingSource}…</Text>
-                </View>
-              ) : (
-                <View style={styles.sourceRow}>
-                  <SourceButton label="Telegram" glyph="✈" onPress={() => handleImport('Telegram')} />
-                  <SourceButton label="WhatsApp" glyph="✆" onPress={() => handleImport('WhatsApp')} />
-                </View>
-              )}
-            </GlassCard>
-          </MotiView>
-        </Pressable>
-      </Modal>
+      <ImportConfigModal
+        visible={modalOpen}
+        onClose={() => !generating && setModalOpen(false)}
+        onConfirm={handleConfirm}
+        generating={generating}
+        youthName={youthName}          // ← passed to modal for "Importing for:" banner
+      />
     </GardenBackground>
   );
 }
@@ -169,16 +183,31 @@ const styles = StyleSheet.create({
   subtitle: { ...typography.body, color: palette.fog, marginTop: 6, marginBottom: spacing.lg },
   sectionLabel: { ...typography.caption, color: palette.mint, marginTop: spacing.md, marginBottom: 8 },
 
+  contextPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: spacing.md,
+    backgroundColor: 'rgba(110,231,183,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(110,231,183,0.25)',
+    borderRadius: radius.pill,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  contextDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: palette.mint, marginRight: 7,
+  },
+  contextText: { color: palette.mint, fontSize: 11.5, fontWeight: '700' },
+
   historyCard: { marginBottom: 12 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   historyTime: { color: palette.fog, fontSize: 12.5, fontWeight: '700' },
   severityPill: {
-    backgroundColor: 'rgba(110,231,183,0.18)',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(110,231,183,0.4)',
+    backgroundColor: 'rgba(110,231,183,0.18)', paddingHorizontal: 10, paddingVertical: 3,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: 'rgba(110,231,183,0.4)',
   },
   severityText: { color: palette.mint, fontSize: 11, fontWeight: '800' },
   historySummary: { color: palette.cloud, fontSize: 14.5, lineHeight: 20 },
@@ -188,50 +217,20 @@ const styles = StyleSheet.create({
 
   importWrap: { marginTop: spacing.lg },
   importBtn: {
-    height: 58,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    shadowColor: palette.tealBright,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.8,
-    shadowRadius: 14,
-    elevation: 10,
+    height: 62, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)',
+    shadowColor: palette.tealBright, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.8, shadowRadius: 14, elevation: 10,
   },
   importText: { color: palette.ink, fontSize: 17, fontWeight: '900', letterSpacing: 0.3 },
 
-  // modal
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(4,17,13,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.lg,
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 4 },
+  editBtn: {
+    marginTop: 10,
+    backgroundColor: 'rgba(110,231,183,0.14)',
+    borderWidth: 1.5, borderColor: 'rgba(110,231,183,0.4)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 14, paddingVertical: 7,
   },
-  ripple: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: palette.tealBright,
-  },
-  modalCard: { width: 320 },
-  modalTitle: { ...typography.title, marginBottom: 6 },
-  modalSub: { color: palette.fog, fontSize: 13, marginBottom: spacing.lg },
-  sourceRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  sourceWrap: { width: '47%' },
-  sourceBtn: {
-    height: 92,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  sourceGlyph: { fontSize: 26, color: palette.ink, marginBottom: 6 },
-  sourceLabel: { color: palette.ink, fontSize: 15, fontWeight: '900' },
-  loadingBox: { alignItems: 'center', paddingVertical: spacing.lg },
-  loadingText: { color: palette.cloud, marginTop: 12, fontSize: 14, fontWeight: '600' },
+  editBtnText: { color: palette.mint, fontSize: 13, fontWeight: '800' },
 });
