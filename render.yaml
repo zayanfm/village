@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: village-engagement-service
+    runtime: node
+    rootDir: backend/services/engagement-service
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false   # set this in the Render dashboard to your MongoDB Atlas URI

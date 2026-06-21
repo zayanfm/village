@@ -9,7 +9,14 @@
  *   user        :4001    house     :4002    journaling :4003
  *   engagement  :4004    calendar  :4005
  *
- * HOST RESOLUTION (the tricky part for mobile):
+ * CLOUD URLS (CLOUD_URLS below): services deployed to Render/etc. use a fixed
+ * public URL instead of LAN host resolution. Once a service is deployed, paste
+ * its URL here — everyone picks it up automatically with no .env changes needed.
+ *
+ * LOCAL OVERRIDE: set EXPO_PUBLIC_<SERVICE>_URL (e.g. EXPO_PUBLIC_ENGAGEMENT_URL)
+ * to temporarily redirect a specific service to a local instance for development.
+ *
+ * HOST RESOLUTION for non-cloud services (the tricky part for mobile):
  *   - On a physical phone via Expo Go, `localhost` points at the PHONE, not your
  *     dev machine. We derive the dev machine's LAN IP from the Metro bundler URL
  *     Expo already knows (`Constants.expoConfig.hostUri`, e.g. "192.168.1.20:8081")
@@ -17,9 +24,8 @@
  *   - On Expo web / iOS simulator, that host is `localhost` and works directly.
  *   - On an Android emulator, the host loopback is `10.0.2.2`.
  *
- * OVERRIDE: set EXPO_PUBLIC_API_HOST (e.g. "192.168.1.20") to force a host.
- * Needed when Metro runs in "localhost" mode or through a tunnel, where the
- * bundler host can't be reused as a LAN address.
+ * OVERRIDE: set EXPO_PUBLIC_API_HOST (e.g. "192.168.1.20") to force a host for
+ * all non-cloud services. Needed when Metro runs in "localhost" mode.
  */
 
 import Constants from 'expo-constants';
@@ -33,6 +39,13 @@ export const SERVICE_PORTS = {
   engagement: 4004,
   calendar: 4005,
   ai: 4006,
+};
+
+// Deployed cloud URLs — paste the Render URL here once a service is live.
+// Everyone on the team picks it up automatically; no .env changes needed.
+// Leave a key empty ('') to fall back to local LAN host resolution.
+const CLOUD_URLS = {
+  engagement: '', // e.g. 'https://village-engagement-service.onrender.com'
 };
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '0.0.0.0', '']);
@@ -104,6 +117,16 @@ if (
 export function baseUrl(service) {
   const port = SERVICE_PORTS[service];
   if (!port) throw new Error(`Unknown backend service: "${service}"`);
+
+  // 1. Per-service env var override (useful for local dev against a specific service).
+  const envOverride = process.env[`EXPO_PUBLIC_${service.toUpperCase()}_URL`];
+  if (envOverride) return envOverride.replace(/\/$/, '');
+
+  // 2. Committed cloud URL — set in CLOUD_URLS above once the service is deployed.
+  const cloudUrl = CLOUD_URLS[service];
+  if (cloudUrl) return cloudUrl.replace(/\/$/, '');
+
+  // 3. Fall back to LAN host resolution (local dev only).
   return `http://${HOST}:${port}`;
 }
 
