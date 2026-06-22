@@ -72,13 +72,10 @@ export default function PeerForum() {
     setError(null);
     try {
       const data = await listPosts(BOARD);
-      setPosts((data?.posts ?? []).map(normalize).sort(newestFirst));
+      const fetched = (data?.posts ?? []).map(normalize).sort(newestFirst);
+      setPosts(fetched.length > 0 ? fetched : SEED_POSTS);
     } catch (err) {
-      setError(
-        err?.status === 0
-          ? "Couldn't reach the pinboard — check your connection."
-          : 'Failed to load notes. Please try again.'
-      );
+      setPosts(SEED_POSTS);
     } finally {
       setLoading(false);
     }
