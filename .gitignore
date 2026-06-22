@@ -1,0 +1,19 @@
+# Environment secrets — never commit real credentials
+.env
+.env.local
+.env.*.local
+
+# Firebase Cloud Functions local secrets
+functions/.env
+functions/.env.local
+functions/.secret.local
+
+# Expo / Metro build caches
+.expo/
+node_modules/
+dist/
+web-build/
+
+# OS
+.DS_Store
+Thumbs.db
