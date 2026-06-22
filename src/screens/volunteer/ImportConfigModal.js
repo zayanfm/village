@@ -19,6 +19,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -188,8 +189,8 @@ export default function ImportConfigModal({ visible, onClose, onConfirm, generat
   const [pickedFileName, setPickedFileName] = useState(null);
   const [pickedLines, setPickedLines] = useState(null);
   const [pickError, setPickError] = useState(null);
-  // Telegram mobile: worker pastes raw messages instead of uploading a file
-  const [telegramPasteMode, setTelegramPasteMode] = useState(false);
+  // Telegram input mode: 'file' | 'paste' | 'bot'
+  const [telegramMode, setTelegramMode] = useState('file');
   const [pastedText, setPastedText] = useState('');
   const [preset, setPreset] = useState('pastWeek');
 
@@ -268,7 +269,7 @@ export default function ImportConfigModal({ visible, onClose, onConfirm, generat
 
   const handlePlatformChange = (key) => {
     setPlatform(key);
-    setTelegramPasteMode(false);
+    setTelegramMode('file');
     resetFileState();
   };
 
@@ -364,30 +365,53 @@ export default function ImportConfigModal({ visible, onClose, onConfirm, generat
             {/* Section 2: Load chat data */}
             <SectionHeader step="2" label={platform === 'WhatsApp' ? 'Choose WhatsApp export (.zip)' : 'Load Telegram messages'} />
 
-            {/* Telegram: toggle between file pick and paste */}
+            {/* Telegram: three-mode selector */}
             {platform === 'Telegram' && !filePicked && (
               <View style={styles.telegramToggleRow}>
-                <Pressable
-                  style={[styles.toggleBtn, !telegramPasteMode && styles.toggleBtnActive]}
-                  onPress={() => { setTelegramPasteMode(false); resetFileState(); }}
-                >
-                  <Text style={[styles.toggleBtnText, !telegramPasteMode && styles.toggleBtnTextActive]}>
-                    📁  Desktop .json file
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.toggleBtn, telegramPasteMode && styles.toggleBtnActive]}
-                  onPress={() => { setTelegramPasteMode(true); resetFileState(); }}
-                >
-                  <Text style={[styles.toggleBtnText, telegramPasteMode && styles.toggleBtnTextActive]}>
-                    📋  Paste messages
-                  </Text>
-                </Pressable>
+                {[
+                  { key: 'file',  icon: '📁', label: 'Desktop file' },
+                  { key: 'paste', icon: '📋', label: 'Paste text' },
+                  { key: 'bot',   icon: '🤖', label: 'Connect bot' },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.key}
+                    style={[styles.toggleBtn, telegramMode === opt.key && styles.toggleBtnActive]}
+                    onPress={() => { setTelegramMode(opt.key); resetFileState(); }}
+                  >
+                    <Text style={[styles.toggleBtnText, telegramMode === opt.key && styles.toggleBtnTextActive]}>
+                      {opt.icon}  {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
             )}
 
-            {/* Telegram paste mode */}
-            {platform === 'Telegram' && telegramPasteMode && !filePicked ? (
+            {/* Telegram bot mode — deep-link to @youth_connector_bot */}
+            {platform === 'Telegram' && telegramMode === 'bot' && !filePicked ? (
+              <View style={styles.botBlock}>
+                <Text style={styles.botTitle}>Connect via Telegram Bot</Text>
+                <Text style={styles.botDesc}>
+                  Open the official UniGarden bot. The youth shares their phone number
+                  inside the bot — it's automatically matched to their Firestore profile
+                  and all messages are PDPA-scrubbed before reaching the database.
+                </Text>
+                <Pressable
+                  style={styles.botBtn}
+                  onPress={() => Linking.openURL('https://t.me/youth_connector_bot?start=auth')}
+                >
+                  <Text style={styles.botBtnIcon}>✈</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.botBtnLabel}>Open @youth_connector_bot</Text>
+                    <Text style={styles.botBtnSub}>Launches Telegram on this device</Text>
+                  </View>
+                  <Text style={styles.botBtnArrow}>→</Text>
+                </Pressable>
+                <Text style={styles.botNote}>
+                  After the youth connects, their messages arrive automatically —
+                  no file export needed.
+                </Text>
+              </View>
+            ) : platform === 'Telegram' && telegramMode === 'paste' && !filePicked ? (
               <View style={styles.pasteBlock}>
                 <Text style={styles.pasteHint}>
                   On Telegram mobile: open the chat, long-press a message → Select more → copy them, then paste below.
@@ -637,6 +661,29 @@ const styles = StyleSheet.create({
   },
   toggleBtnText: { color: palette.fog, fontSize: 12.5, fontWeight: '700' },
   toggleBtnTextActive: { color: palette.mint },
+
+  /* Telegram bot block */
+  botBlock: {
+    backgroundColor: 'rgba(56,178,172,0.08)',
+    borderRadius: radius.md, borderWidth: 1,
+    borderColor: 'rgba(56,178,172,0.25)',
+    padding: 14, marginBottom: 4,
+  },
+  botTitle: { color: palette.tealBright, fontSize: 13.5, fontWeight: '800', marginBottom: 6 },
+  botDesc: { color: palette.fog, fontSize: 12.5, lineHeight: 18, marginBottom: 14 },
+  botBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(56,178,172,0.18)',
+    borderRadius: radius.md, borderWidth: 1.5,
+    borderColor: 'rgba(56,178,172,0.45)',
+    paddingVertical: 14, paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  botBtnIcon: { fontSize: 22, color: palette.tealBright },
+  botBtnLabel: { color: palette.cloud, fontSize: 14, fontWeight: '800' },
+  botBtnSub: { color: palette.fog, fontSize: 11.5, marginTop: 2 },
+  botBtnArrow: { color: palette.tealBright, fontSize: 18, fontWeight: '900' },
+  botNote: { color: palette.fog, fontSize: 11.5, lineHeight: 16, fontStyle: 'italic' },
 
   /* Telegram paste block */
   pasteBlock: {

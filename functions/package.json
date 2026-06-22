@@ -1,0 +1,17 @@
+{
+  "name": "unigarden-functions",
+  "description": "UniGarden Firebase Cloud Functions — Telegram bot webhook",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "private": true
+}
