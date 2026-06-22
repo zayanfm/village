@@ -22,6 +22,16 @@ import { pastel, youthRadius as rad } from '../youth/youthTheme';
 // Monitor the YOUTH pinboard — same feed the youth see.
 const BOARD = BOARDS.YOUTH;
 
+// Shown when the engagement service is unreachable (backend not running).
+const SEED_POSTS = [
+  { id: 's1', body: 'anyone else finding it hard to focus lately? exams are really getting to me 😮‍💨', comments: 3, createdAt: Date.now() - 3600000 },
+  { id: 's2', body: 'does anyone have tips for talking to parents when you feel overwhelmed? mine dont really get it', comments: 5, createdAt: Date.now() - 7200000 },
+  { id: 's3', body: 'feeling really disconnected from my class lately, like nobody notices im struggling', comments: 2, createdAt: Date.now() - 86400000 },
+  { id: 's4', body: 'had a genuinely good week for once, just wanted to share that 🌱', comments: 8, createdAt: Date.now() - 172800000 },
+  { id: 's5', body: 'not sleeping well at all. wake up at 3am and just lie there overthinking everything', comments: 4, createdAt: Date.now() - 259200000 },
+  { id: 's6', body: 'anyone else feel like they have to pretend to be okay all the time? its exhausting', comments: 6, createdAt: Date.now() - 345600000 },
+];
+
 // 🔧 DEV CONFIG — set false to hide the comment line on every note app-wide.
 const SHOW_COMMENTS = true;
 
