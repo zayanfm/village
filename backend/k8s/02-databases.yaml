@@ -1,0 +1,416 @@
+# ── PostgreSQL: user-db ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-user
+  namespace: unigarden
+spec:
+  serviceName: postgres-user
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-user
+  template:
+    metadata:
+      labels:
+        app: postgres-user
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: userdb
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "test", "-d", "userdb"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-user
+  namespace: unigarden
+spec:
+  selector:
+    app: postgres-user
+  ports:
+    - port: 5432
+---
+# ── PostgreSQL: journal-db ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-journal
+  namespace: unigarden
+spec:
+  serviceName: postgres-journal
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-journal
+  template:
+    metadata:
+      labels:
+        app: postgres-journal
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: journaldb
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "test", "-d", "journaldb"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-journal
+  namespace: unigarden
+spec:
+  selector:
+    app: postgres-journal
+  ports:
+    - port: 5432
+---
+# ── PostgreSQL: calendar-db ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-calendar
+  namespace: unigarden
+spec:
+  serviceName: postgres-calendar
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-calendar
+  template:
+    metadata:
+      labels:
+        app: postgres-calendar
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: calendardb
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "test", "-d", "calendardb"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-calendar
+  namespace: unigarden
+spec:
+  selector:
+    app: postgres-calendar
+  ports:
+    - port: 5432
+---
+# ── Redis: journal-cache (volatile — no persistence) ─────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-journal
+  namespace: unigarden
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-journal
+  template:
+    metadata:
+      labels:
+        app: redis-journal
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-journal
+  namespace: unigarden
+spec:
+  selector:
+    app: redis-journal
+  ports:
+    - port: 6379
+---
+# ── MongoDB: house-db ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo-house
+  namespace: unigarden
+spec:
+  serviceName: mongo-house
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo-house
+  template:
+    metadata:
+      labels:
+        app: mongo-house
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MONGO_USER
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MONGO_PASSWORD
+            - name: MONGO_INITDB_DATABASE
+              value: house_db
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-house
+  namespace: unigarden
+spec:
+  selector:
+    app: mongo-house
+  ports:
+    - port: 27017
+---
+# ── MongoDB: engagement-db ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo-engagement
+  namespace: unigarden
+spec:
+  serviceName: mongo-engagement
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo-engagement
+  template:
+    metadata:
+      labels:
+        app: mongo-engagement
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MONGO_USER
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MONGO_PASSWORD
+            - name: MONGO_INITDB_DATABASE
+              value: engagement_db
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-engagement
+  namespace: unigarden
+spec:
+  selector:
+    app: mongo-engagement
+  ports:
+    - port: 27017
+---
+# ── MongoDB: ai-db ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo-ai
+  namespace: unigarden
+spec:
+  serviceName: mongo-ai
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo-ai
+  template:
+    metadata:
+      labels:
+        app: mongo-ai
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MONGO_USER
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MONGO_PASSWORD
+            - name: MONGO_INITDB_DATABASE
+              value: ai_db
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-ai
+  namespace: unigarden
+spec:
+  selector:
+    app: mongo-ai
+  ports:
+    - port: 27017

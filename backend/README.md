@@ -1,119 +1,220 @@
 # UniGarden Backend
 
-Cloud-native, **Database-per-Service** backend for the UniGarden platform. Five
+Cloud-native, **Database-per-Service** backend for the UniGarden platform. Six
 independent Node.js + TypeScript services, each owning its own datastore. No
 service touches another service's database — all cross-service access is via API.
 
 ```
 backend/
-├── docker-compose.yml          # all 5 DBs + the volatile Redis cache
-└── services/
-    ├── user-service/           # PostgreSQL  (auth, profiles, case assignments)
-    ├── house-service/          # MongoDB     (house_designs, interiors)
-    ├── journaling-service/     # PostgreSQL  (encrypted entries) + Redis (volatile drafts)
-    ├── engagement-service/     # MongoDB     (forum posts + comments)
-    └── calendar-service/       # PostgreSQL  (worker schedules + event blocks)
+├── .env.example                # copy to .env and fill in secrets
+├── docker-compose.yml          # all DBs + all 6 application services
+├── services/
+│   ├── ai-service/             # MongoDB     (chat history, AI summaries)
+│   ├── user-service/           # PostgreSQL  (auth, profiles, case assignments)
+│   ├── house-service/          # MongoDB     (house designs, interiors)
+│   ├── journaling-service/     # PostgreSQL  (entries) + Redis (volatile drafts)
+│   ├── engagement-service/     # MongoDB     (forum posts + comments)
+│   └── calendar-service/       # PostgreSQL  (worker schedules + event blocks)
+└── k8s/
+    ├── 00-namespace.yaml
+    ├── 01-secrets.yaml         # fill in real values before applying
+    ├── 02-databases.yaml       # StatefulSets for all databases
+    ├── 03-ai-service.yaml
+    ├── 03-user-service.yaml
+    ├── 03-house-service.yaml
+    ├── 03-journaling-service.yaml
+    ├── 03-engagement-service.yaml
+    └── 03-calendar-service.yaml
 ```
 
-| Service     | Engine     | Host port | DB / namespace  |
-|-------------|------------|-----------|-----------------|
-| user        | postgres:16| 5435      | `userdb`        |
-| journaling  | postgres:16| 5433      | `journaldb`     |
-| calendar    | postgres:16| 5434      | `calendardb`    |
-| journaling  | redis:7    | 6379      | volatile cache  |
-| house       | mongo:7    | 27017     | `house_db`      |
-| engagement  | mongo:7    | 27018     | `engagement_db` |
+| Service     | Port | Engine      | DB / namespace  |
+|-------------|------|-------------|-----------------|
+| ai          | 4006 | MongoDB     | `ai_db`         |
+| user        | 4001 | PostgreSQL  | `userdb`        |
+| house       | 4002 | MongoDB     | `house_db`      |
+| journaling  | 4003 | PostgreSQL  | `journaldb`     |
+| engagement  | 4004 | MongoDB     | `engagement_db` |
+| calendar    | 4005 | PostgreSQL  | `calendardb`    |
 
 ---
 
-## 1. Start the infrastructure
+## Option A — Docker Compose (local dev)
 
-From `backend/`:
+The fastest way to get everything running locally.
+
+### 1. Configure secrets
+
+```bash
+cd backend
+cp .env.example .env
+# Edit .env — set GROQ_API_KEY, POSTGRES_PASSWORD, MONGO_PASSWORD
+```
+
+### 2. Start everything
 
 ```bash
 docker compose up -d
-docker compose ps          # all should be (healthy)
+docker compose ps          # all containers should show (healthy)
+docker compose logs -f ai-service   # tail a specific service
 ```
 
-This launches the three Postgres instances, the two MongoDB instances, and the
-volatile Redis cache. Local data persists in named volumes across restarts —
-**except** `journal-cache`, which is configured with `--save "" --appendonly no`
-so it never writes to disk (the Temporary-journal volatility guarantee).
+This starts all 7 databases and all 6 application services. Prisma services
+(`user`, `calendar`, `journaling`) automatically run `prisma migrate deploy` on
+first boot so the schema is always in sync.
 
-Tear down (keep data): `docker compose down`
-Tear down (wipe data): `docker compose down -v`
+**Data persistence:** named volumes survive `docker compose down`.
+To wipe all data: `docker compose down -v`
 
-## 2. Install + generate clients
+**Journal-cache** is intentionally non-persistent (`--save "" --appendonly no`) —
+volatile journal drafts never touch disk by design.
 
-Each service is self-contained. For every service:
+### 3. Verify
+
+```bash
+curl http://localhost:4006/health   # ai-service
+curl http://localhost:4001/health   # user-service
+# ports 4002–4005 follow the same pattern
+```
+
+---
+
+## Option B — Kubernetes (staging / production)
+
+### Prerequisites
+
+- A running Kubernetes cluster (Docker Desktop, minikube, EKS, GKE, etc.)
+- `kubectl` configured to point at it
+- Images built and pushed to a registry (see below)
+
+### 1. Build and push images
+
+Run from `backend/services/<service>/` for each service:
+
+```bash
+docker build -t unigarden/ai-service:latest .
+docker push unigarden/ai-service:latest
+# repeat for: user-service, house-service, journaling-service,
+#             engagement-service, calendar-service
+```
+
+Update the `image:` field in each `k8s/03-*.yaml` to match your registry path
+(e.g. `gcr.io/my-project/ai-service:latest`).
+
+### 2. Fill in secrets
+
+Edit [`k8s/01-secrets.yaml`](k8s/01-secrets.yaml) with real credentials before
+applying — never commit real values.
+
+### 3. Apply manifests
+
+```bash
+cd backend/k8s
+
+kubectl apply -f 00-namespace.yaml
+kubectl apply -f 01-secrets.yaml
+kubectl apply -f 02-databases.yaml
+
+# Wait for databases to become ready before applying services
+kubectl rollout status statefulset/postgres-user -n unigarden
+
+kubectl apply -f 03-ai-service.yaml
+kubectl apply -f 03-user-service.yaml
+kubectl apply -f 03-house-service.yaml
+kubectl apply -f 03-journaling-service.yaml
+kubectl apply -f 03-engagement-service.yaml
+kubectl apply -f 03-calendar-service.yaml
+
+# Or apply everything at once (databases must be ready first)
+kubectl apply -f .
+```
+
+### 4. Verify pods
+
+```bash
+kubectl get pods -n unigarden
+kubectl logs -n unigarden deployment/ai-service
+```
+
+### Exposing services externally
+
+By default all application services are `ClusterIP` (internal only). To expose
+them to your mobile app, either:
+
+- Change `type: ClusterIP` → `type: LoadBalancer` in the relevant service YAML
+- Or add an Ingress controller (nginx-ingress / Traefik) and configure routing rules
+
+---
+
+## Running services locally (without Docker)
+
+### 1. Start the databases only
+
+```bash
+docker compose up -d user-db journal-db calendar-db journal-cache house-db engagement-db ai-db
+```
+
+### 2. Install dependencies
 
 ```bash
 cd services/<service>
 npm install
-# Postgres services only — generate the Prisma client:
+# Prisma services (user, calendar, journaling) only:
 npm run prisma:generate
-# (optional) create the real tables from the schema:
 npm run prisma:migrate
 ```
 
-## 3. Run the connection tests
+### 3. Run a service
 
-Each service ships a `test:db` script that connects to its assigned port, does a
-read/write round-trip, and logs success:
+```bash
+cd services/ai-service
+npm run dev          # ts-node, hot-ish reload
+curl http://localhost:4006/health
+```
+
+### 4. Run connection tests
+
+Each service ships a `test:db` script that does a full read/write round-trip:
 
 ```bash
 cd services/user-service        && npm run test:db
-cd services/journaling-service  && npm run test:db   # tests BOTH Postgres + Redis
+cd services/journaling-service  && npm run test:db   # tests Postgres + Redis
 cd services/calendar-service    && npm run test:db
 cd services/house-service       && npm run test:db
 cd services/engagement-service  && npm run test:db
 ```
 
-Expected output (example):
+---
 
-```
-[user-service] ✅ Postgres reachable on :5432 — healthcheck rows = 1
-```
+## Environment variables
 
-## 4. Run a service (optional)
+| Variable          | Used by                        | Description                          |
+|-------------------|--------------------------------|--------------------------------------|
+| `GROQ_API_KEY`    | ai-service                     | Groq API key for LLM calls           |
+| `POSTGRES_USER`   | compose / k8s secrets          | Shared Postgres username             |
+| `POSTGRES_PASSWORD` | compose / k8s secrets        | Shared Postgres password             |
+| `MONGO_USER`      | compose / k8s secrets          | Shared MongoDB username              |
+| `MONGO_PASSWORD`  | compose / k8s secrets          | Shared MongoDB password              |
+| `DATABASE_URL`    | user, calendar, journaling     | Full Prisma connection string        |
+| `MONGO_URI`       | ai, house, engagement          | Full MongoDB connection string       |
+| `REDIS_URL`       | journaling-service             | Redis connection URL                 |
+| `PORT`            | all services                   | HTTP port (defaults per service)     |
 
-Each service exposes a minimal Express health endpoint:
+`src/loadEnv.ts` (imported first in every service) runs `dotenv` + `dotenv-expand`
+so `${VAR}` references in connection strings are resolved at runtime.
 
-```bash
-cd services/<service> && npm run dev
-curl http://localhost:4001/health     # user-service (4001..4005)
-```
+All `.env` files are git-ignored. In production, inject secrets from your secrets
+manager (AWS Secrets Manager, GCP Secret Manager, K8s Secrets, etc.).
 
 ---
 
-## Access control (where it lives)
+## Access control
 
 RBAC is carried in JWT claims minted by **user-service** (`persona`, `roles`,
-`scopes`, `rel`). Enforcement is layered: API gateway (coarse scope check) →
-service guard (route-level) → database (Postgres Row-Level Security / injected
-Mongo ownership filters). Workers never get raw read on `journal_entries` — only
-sanitized summaries — mirroring the app's volatile-vs-retained PDPA model.
+`scopes`, `rel`). Enforcement is layered:
 
-## Env files & credentials (portable)
+1. API gateway — coarse scope check
+2. Service guard — route-level (`x-worker-role` header for worker-only endpoints)
+3. Database — Postgres Row-Level Security / injected Mongo ownership filters
 
-Credentials come from **discrete environment variables**, never hardcoded into a
-connection string. Each service `.env` declares `POSTGRES_USER/PASSWORD/HOST/PORT/DB`
-(or `MONGO_*`) and composes the URL via `${VAR}` interpolation, e.g.:
-
-```ini
-POSTGRES_USER=test
-POSTGRES_PASSWORD=iluvhasini
-DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?schema=public"
-```
-
-`src/loadEnv.ts` (imported first by every entry point) runs `dotenv` + `dotenv-expand`
-to resolve those `${VAR}` refs at runtime — so changing creds is a one-line edit
-and the same files work on any machine.
-
-- **Container creds** come from `backend/.env` (compose variable substitution):
-  `POSTGRES_USER/PASSWORD`, `MONGO_USER/PASSWORD`. Copy `backend/.env.example`.
-- All `.env` files are git-ignored; values shown are non-secret local defaults.
-  In real environments, inject these vars (and `ENCRYPTION_KEY`) from your secrets
-  manager.
-- Mongo runs with auth enabled (`authSource=admin`); Postgres user-db is published
-  on **5435** to avoid a native PostgreSQL install on 5432.
+Workers never get raw read access on `journal_entries` — only sanitized summaries
+— mirroring the app's volatile-vs-retained PDPA model.

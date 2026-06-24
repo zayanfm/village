@@ -17,8 +17,7 @@
     "dotenv": "^16.4.5",
     "dotenv-expand": "^11.0.7",
     "express": "^4.21.1",
-    "ioredis": "^5.4.1",
-    "unigarden": "file:../../.."
+    "ioredis": "^5.4.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
