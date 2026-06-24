@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import OrbCompanion from './OrbCompanion';
 import { pastel, youthRadius as rad } from './youthTheme';
 import { sendMessage } from '../../api/chatService';
+import { useYouthSession } from '../../context/YouthSessionContext';
 
 /* ── User Avatar (Three.js) ─────────────────────────────────────────────── */
 
@@ -112,6 +113,7 @@ const GREETING = {
 };
 
 export default function YouthAICompanion({ navigation }) {
+  const { firestoreId } = useYouthSession();
   // messages uses the Groq format: { id, role: 'user'|'assistant', content }
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
@@ -139,7 +141,7 @@ export default function YouthAICompanion({ navigation }) {
     const apiMessages = nextMessages.map(({ role, content }) => ({ role, content }));
 
     try {
-      const reply = await sendMessage(apiMessages);
+      const reply = await sendMessage(apiMessages, firestoreId);
       const botMsg = { id: `b-${Date.now()}`, role: 'assistant', content: reply };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
