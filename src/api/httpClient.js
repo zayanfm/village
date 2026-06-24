@@ -69,7 +69,8 @@ export async function request(url, opts = {}) {
 }
 
 export const http = {
-  get: (url, opts) => request(url, { ...opts, method: 'GET' }),
-  post: (url, body, opts) => request(url, { ...opts, method: 'POST', body }),
-  put: (url, body, opts) => request(url, { ...opts, method: 'PUT', body }),
+  get:   (url, opts)       => request(url, { ...opts, method: 'GET' }),
+  post:  (url, body, opts) => request(url, { ...opts, method: 'POST',  body }),
+  put:   (url, body, opts) => request(url, { ...opts, method: 'PUT',   body }),
+  patch: (url, body, opts) => request(url, { ...opts, method: 'PATCH', body }),
 };

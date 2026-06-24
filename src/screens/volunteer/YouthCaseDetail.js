@@ -10,7 +10,7 @@
  * processing.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -29,6 +29,7 @@ import ImportConfigModal from './ImportConfigModal';
 import { useVolatileTranscript } from '../../context/VolatileTranscriptContext';
 import { importChatFromSource } from '../../api/ingestionService';
 import { fetchYouthProfile } from '../../api/firestoreService';
+import { getSummary, generateSummary, summarizeImport } from '../../api/summaryService';
 import { gradients, palette, radius, spacing, typography } from '../../theme/theme';
 
 function HistoryRow({ entry, index }) {
@@ -51,6 +52,211 @@ function HistoryRow({ entry, index }) {
   );
 }
 
+const RISK_CONFIG = {
+  low:    { color: '#48BB78', bg: 'rgba(72,187,120,0.12)',  border: 'rgba(72,187,120,0.35)',  label: 'LOW RISK',    icon: '●' },
+  medium: { color: '#F6AD55', bg: 'rgba(246,173,85,0.12)',  border: 'rgba(246,173,85,0.35)',  label: 'MEDIUM RISK', icon: '◆' },
+  high:   { color: '#F56565', bg: 'rgba(245,101,101,0.12)', border: 'rgba(245,101,101,0.35)', label: 'HIGH RISK',   icon: '▲' },
+};
+
+function RiskBadge({ level }) {
+  const cfg = RISK_CONFIG[level] ?? RISK_CONFIG.low;
+  return (
+    <View style={[styles.riskBadge, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+      <Text style={[styles.riskIcon, { color: cfg.color }]}>{cfg.icon}</Text>
+      <Text style={[styles.riskLabel, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+function EmotionalTimeline({ trajectory }) {
+  if (!trajectory?.length) return null;
+  return (
+    <View style={styles.timelineWrap}>
+      {trajectory.map((event, i) => (
+        <View key={i} style={styles.timelineRow}>
+          <View style={styles.timelineDotCol}>
+            <View style={styles.timelineDot} />
+            {i < trajectory.length - 1 && <View style={styles.timelineLine} />}
+          </View>
+          <View style={styles.timelineContent}>
+            <Text style={styles.timelineTs}>{event.timestamp}</Text>
+            <Text style={styles.timelineState}>{event.emotionalState}</Text>
+            {event.confidenceScore != null && (
+              <View style={styles.confidenceBarBg}>
+                <View style={[styles.confidenceBarFill, { width: `${Math.round(event.confidenceScore * 100)}%` }]} />
+              </View>
+            )}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function SummarySection({ firestoreId }) {
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(true);
+
+  const normalise = (raw) => {
+    if (!raw) return null;
+    // Support both new schema fields and old fallback field names
+    return {
+      ...raw,
+      summary:             raw.summary             || raw.sessionOverview    || '',
+      emotionalTrajectory: raw.emotionalTrajectory?.length
+        ? raw.emotionalTrajectory
+        : (raw.timeline ?? []).map(t => ({
+            timestamp:      t.timestamp,
+            emotionalState: t.event,
+            confidenceScore: 0.5,
+          })),
+      themes:      raw.themes      || raw.keyThemes              || [],
+      actionItems: raw.actionItems || raw.followUpConsiderations || [],
+      riskLevel:   raw.riskLevel   || 'low',
+      riskReason:  raw.riskReason  || (raw.recurringConcerns?.[0] ?? ''),
+    };
+  };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const data = await generateSummary(firestoreId);
+      setSummary(normalise(data?.summary ?? data));
+      setExpanded(true);
+    } catch (e) {
+      setError('Could not generate briefing. Make sure the youth has had conversations with Sprout.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!firestoreId) return;
+    setLoading(true);
+    getSummary(firestoreId)
+      .then(data => { setSummary(normalise(data?.summary ?? data)); setError(null); })
+      .catch(() => setError(null))
+      .finally(() => setLoading(false));
+  }, [firestoreId]);
+
+  if (!firestoreId) return null;
+
+  return (
+    <View style={{ marginTop: spacing.lg }}>
+      <Pressable onPress={() => setExpanded(v => !v)} style={styles.summaryHeader}>
+        <View>
+          <Text style={styles.sectionLabel}>AI CASE BRIEFING</Text>
+          <Text style={styles.summarySubtitle}>PDPA-compliant · PII redacted</Text>
+        </View>
+        <Text style={styles.summaryToggle}>{expanded ? '▲' : '▼'}</Text>
+      </Pressable>
+
+      {expanded && (
+        <MotiView
+          from={{ opacity: 0, translateY: -6 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'timing', duration: 300 }}
+        >
+          {loading ? (
+            <GlassCard style={styles.summaryCard} radiusSize={radius.md}>
+              <ActivityIndicator color={palette.mint} />
+              <Text style={styles.summaryLoadingText}>Loading briefing…</Text>
+            </GlassCard>
+
+          ) : summary ? (
+            <GlassCard style={styles.summaryCard} radiusSize={radius.md}>
+              <View style={styles.summaryMetaRow}>
+                <Text style={styles.summaryMeta}>
+                  {new Date(summary.generatedAt).toLocaleString('en-SG', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                  {' · '}{summary.messageCount} messages
+                </Text>
+                <RiskBadge level={summary.riskLevel ?? 'low'} />
+              </View>
+
+              {summary.riskReason ? (
+                <View style={[styles.riskReasonBox, { borderColor: (RISK_CONFIG[summary.riskLevel] ?? RISK_CONFIG.low).border }]}>
+                  <Text style={styles.riskReasonText}>{summary.riskReason}</Text>
+                </View>
+              ) : null}
+
+              {summary.summary ? (
+                <>
+                  <Text style={styles.summaryFieldLabel}>SESSION OVERVIEW</Text>
+                  <Text style={styles.summaryFieldText}>{summary.summary}</Text>
+                </>
+              ) : null}
+
+              {summary.emotionalTrajectory?.length > 0 && (
+                <>
+                  <Text style={styles.summaryFieldLabel}>EMOTIONAL TRAJECTORY</Text>
+                  <EmotionalTimeline trajectory={summary.emotionalTrajectory} />
+                </>
+              )}
+
+              {summary.themes?.length > 0 && (
+                <>
+                  <Text style={styles.summaryFieldLabel}>KEY THEMES</Text>
+                  <View style={styles.themeRow}>
+                    {summary.themes.map((t, i) => (
+                      <View key={i} style={styles.themePill}>
+                        <Text style={styles.themePillText}>{t}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              {summary.actionItems?.length > 0 && (
+                <>
+                  <Text style={styles.summaryFieldLabel}>FOLLOW-UP ACTIONS</Text>
+                  {summary.actionItems.map((a, i) => (
+                    <View key={i} style={styles.actionRow}>
+                      <Text style={styles.actionIcon}>→</Text>
+                      <Text style={styles.actionText}>{a}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              <Pressable onPress={handleGenerate} disabled={generating} style={styles.regenBtn}>
+                {generating
+                  ? <ActivityIndicator color={palette.mint} size="small" />
+                  : <Text style={styles.regenBtnText}>↻  Refresh Briefing</Text>
+                }
+              </Pressable>
+            </GlassCard>
+
+          ) : (
+            <GlassCard style={styles.summaryCard} radiusSize={radius.md}>
+              <Text style={styles.summaryEmptyText}>
+                No briefing generated yet. The AI will analyse Sprout conversation patterns and produce a PDPA-compliant case summary.
+              </Text>
+              {error && <Text style={styles.summaryError}>{error}</Text>}
+              <Pressable onPress={handleGenerate} disabled={generating} style={styles.generateBtn}>
+                {generating
+                  ? <ActivityIndicator color={palette.ink} size="small" />
+                  : <LinearGradient
+                      colors={gradients.leaf}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.generateBtnInner}
+                    >
+                      <Text style={styles.generateBtnText}>✦  Generate Case Briefing</Text>
+                    </LinearGradient>
+                }
+              </Pressable>
+            </GlassCard>
+          )}
+        </MotiView>
+      )}
+    </View>
+  );
+}
+
 export default function YouthCaseDetail({ route, navigation }) {
   const {
     caseId = '#H-008',
@@ -60,7 +266,7 @@ export default function YouthCaseDetail({ route, navigation }) {
     youthHouseConfig,
   } = route.params ?? {};
 
-  const { caseHistories, ingestTranscript } = useVolatileTranscript();
+  const { caseHistories, ingestTranscript, updateDraft } = useVolatileTranscript();
   const [modalOpen, setModalOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
@@ -96,11 +302,24 @@ export default function YouthCaseDetail({ route, navigation }) {
     }
 
     ingestTranscript(cfg.platform, payload, cfg);
+
+    // Generate AI summary and override the default draft assessment
+    let importSummary = null;
+    try {
+      const lines = (payload.lines ?? []).slice(0, 120);
+      importSummary = await summarizeImport(lines);
+      // Override the default draft text with the real AI analysis
+      if (importSummary?.overview) {
+        updateDraft({ interventionPlan: importSummary.overview });
+      }
+    } catch (e) {
+      console.warn('[Import] summarizeImport failed:', e?.message ?? e);
+    }
+
     setGenerating(false);
     setModalOpen(false);
 
-    // firestoreId is forwarded so CaseManagementForm can execute Path A
-    navigation.navigate('CaseManagementForm', { caseKey, caseId, youthName, firestoreId });
+    navigation.navigate('CaseManagementForm', { caseKey, caseId, youthName, firestoreId, importSummary });
   };
 
   return (
@@ -136,6 +355,8 @@ export default function YouthCaseDetail({ route, navigation }) {
 
           <Text style={styles.sectionLabel}>THEIR SPACE</Text>
           <MiniRoomPreview youthHouseConfig={youthHouseConfig} height={230} />
+
+          <SummarySection firestoreId={firestoreId} />
 
           <Text style={[styles.subtitle, { marginTop: spacing.lg }]}>Anonymized session history</Text>
 
@@ -214,6 +435,129 @@ const styles = StyleSheet.create({
 
   empty: { marginBottom: 12 },
   emptyText: { color: palette.fog, fontSize: 14, lineHeight: 20 },
+
+  summaryHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8,
+  },
+  summarySubtitle: { color: palette.fog, fontSize: 10.5, fontWeight: '600', marginTop: 2, letterSpacing: 0.3 },
+  summaryToggle: { color: palette.mint, fontSize: 12, fontWeight: '700' },
+  summaryCard: { marginBottom: 12 },
+  summaryLoadingText: { color: palette.fog, fontSize: 13, marginTop: 8, textAlign: 'center' },
+  summaryMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  summaryMeta: { color: palette.fog, fontSize: 11, fontStyle: 'italic', flex: 1 },
+  summaryFieldLabel: { color: palette.mint, fontSize: 11, fontWeight: '800', marginTop: 14, marginBottom: 6, letterSpacing: 0.8 },
+  summaryFieldText: { color: palette.cloud, fontSize: 14, lineHeight: 22 },
+
+  // Risk badge
+  riskBadge: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1,
+    borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, gap: 5,
+  },
+  riskIcon: { fontSize: 10, fontWeight: '900' },
+  riskLabel: { fontSize: 10.5, fontWeight: '900', letterSpacing: 0.5 },
+  riskReasonBox: {
+    borderWidth: 1, borderRadius: radius.md, padding: 10, marginTop: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  riskReasonText: { color: palette.fog, fontSize: 13, lineHeight: 19, fontStyle: 'italic' },
+
+  // Emotional timeline
+  timelineWrap: { gap: 0 },
+  timelineRow: { flexDirection: 'row', minHeight: 52 },
+  timelineDotCol: { width: 20, alignItems: 'center', paddingTop: 4 },
+  timelineDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: palette.mint, marginBottom: 2,
+  },
+  timelineLine: { flex: 1, width: 1.5, backgroundColor: 'rgba(110,231,183,0.25)' },
+  timelineContent: { flex: 1, paddingLeft: 10, paddingBottom: 14 },
+  timelineTs: { color: palette.fog, fontSize: 11, fontWeight: '700', marginBottom: 2 },
+  timelineState: { color: palette.cloud, fontSize: 13.5, lineHeight: 19 },
+  confidenceBarBg: {
+    height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)',
+    marginTop: 5, overflow: 'hidden',
+  },
+  confidenceBarFill: { height: 3, borderRadius: 2, backgroundColor: palette.mint },
+
+  // Themes
+  themeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  themePill: {
+    backgroundColor: 'rgba(110,231,183,0.12)', borderWidth: 1, borderColor: 'rgba(110,231,183,0.35)',
+    borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4,
+  },
+  themePillText: { color: palette.mint, fontSize: 12, fontWeight: '700' },
+
+  // Action items
+  actionRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6, gap: 8 },
+  actionIcon: { color: palette.tealBright, fontSize: 14, fontWeight: '800', marginTop: 1 },
+  actionText: { color: palette.cloud, fontSize: 13.5, lineHeight: 20, flex: 1 },
+
+  summaryEmptyText: { color: palette.fog, fontSize: 14, lineHeight: 21, marginBottom: 14 },
+  summaryError: { color: '#F56565', fontSize: 13, marginBottom: 10 },
+  generateBtn: { marginTop: 4 },
+  generateBtnInner: {
+    height: 52, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  generateBtnText: { color: palette.ink, fontSize: 15, fontWeight: '900' },
+  regenBtn: {
+    marginTop: 14, alignSelf: 'flex-end', backgroundColor: 'rgba(110,231,183,0.12)',
+    borderWidth: 1, borderColor: 'rgba(110,231,183,0.35)', borderRadius: radius.pill,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  regenBtnText: { color: palette.mint, fontSize: 13, fontWeight: '800' },
+
+  // Review banner
+  reviewBanner: {
+    backgroundColor: 'rgba(110,231,183,0.10)', borderWidth: 1, borderColor: 'rgba(110,231,183,0.30)',
+    borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 14,
+  },
+  reviewBannerText: { color: palette.mint, fontSize: 12.5, fontWeight: '700' },
+
+  // Saved banner
+  savedBanner: {
+    backgroundColor: 'rgba(72,187,120,0.12)', borderWidth: 1, borderColor: 'rgba(72,187,120,0.35)',
+    borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12,
+  },
+  savedBannerText: { color: '#48BB78', fontSize: 12.5, fontWeight: '800' },
+
+  // Risk selector
+  riskSelectorRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  riskSelectorBtn: {
+    flex: 1, borderWidth: 1.5, borderRadius: radius.md,
+    paddingVertical: 8, alignItems: 'center', justifyContent: 'center',
+  },
+  riskSelectorText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
+
+  // Edit inputs
+  editInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10,
+    color: palette.cloud, fontSize: 14, lineHeight: 21, marginBottom: 8,
+  },
+  editActionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  removeBtn: { padding: 8 },
+  removeBtnText: { color: '#F56565', fontSize: 14, fontWeight: '800' },
+  addActionBtn: { alignSelf: 'flex-start', marginBottom: 12 },
+  addActionText: { color: palette.tealBright, fontSize: 13, fontWeight: '700' },
+
+  // Review buttons
+  reviewBtnRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  cancelBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: radius.md, paddingVertical: 12, alignItems: 'center',
+  },
+  cancelBtnText: { color: palette.fog, fontSize: 14, fontWeight: '700' },
+  confirmBtn: {
+    flex: 2, backgroundColor: palette.mint,
+    borderRadius: radius.md, paddingVertical: 12, alignItems: 'center',
+  },
+  confirmBtnText: { color: palette.ink, fontSize: 14, fontWeight: '900' },
+  editExistingBtn: {
+    borderWidth: 1.5, borderColor: 'rgba(110,231,183,0.35)', borderRadius: radius.pill,
+    paddingHorizontal: 14, paddingVertical: 7, backgroundColor: 'rgba(110,231,183,0.10)',
+  },
+  editExistingBtnText: { color: palette.mint, fontSize: 13, fontWeight: '800' },
 
   importWrap: { marginTop: spacing.lg },
   importBtn: {

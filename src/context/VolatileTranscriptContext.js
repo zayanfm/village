@@ -49,23 +49,7 @@ export function resolveDatePreset(preset, customStart, customEnd) {
   }
 }
 
-// Sanitized, NON-PII seed history. Safe to retain under the PDPA simulation.
-const SEED_HISTORIES = {
-  'H-008': [
-    {
-      id: 'sum-1',
-      summary: 'Prior session: explored exam-period stress; coping plan agreed.',
-      timestamp: '3 weeks ago',
-      severity: 'Moderate',
-    },
-    {
-      id: 'sum-2',
-      summary: 'Prior session: check-in on sleep routine; positive trend noted.',
-      timestamp: '1 week ago',
-      severity: 'Low',
-    },
-  ],
-};
+const SEED_HISTORIES = {};
 
 export function VolatileTranscriptProvider({ children }) {
   // ---- VOLATILE / SENSITIVE BUFFERS (must be flushable to null) ----
