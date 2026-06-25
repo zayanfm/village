@@ -39,13 +39,13 @@ import { db } from './firebaseConfig';
 
 const YOUTH_PROFILES = 'youth_profiles';
 
-function isConfigured() {
+export function isConfigured() {
   const ok = Boolean(process.env.EXPO_PUBLIC_FB_PROJECT_ID);
   if (!ok) console.warn('[firestoreService] Firebase not configured — skipping write.');
   return ok;
 }
 
-function withTimeout(promise, ms = 5000) {
+export function withTimeout(promise, ms = 5000) {
   const t = new Promise((_, reject) =>
     setTimeout(() => reject(new Error(`Firestore timed out after ${ms}ms`)), ms)
   );

@@ -332,6 +332,17 @@ export default function YouthRoomHome({ navigation, route }) {
         </Pressable>
         <Text style={styles.title}>Welcome home</Text>
       </SafeAreaView>
+
+      {/* Flat 2D HUD entry to the co-op Shared Plot (no FOCUS_TARGET surgery). */}
+      <SafeAreaView style={styles.gardenHud} edges={['bottom']} pointerEvents="box-none">
+        <Pressable
+          onPress={() => navigation?.navigate('YouthGardenPlot')}
+          hitSlop={8}
+          style={styles.gardenBtn}
+        >
+          <Text style={styles.gardenBtnText}>Our Garden 🌱</Text>
+        </Pressable>
+      </SafeAreaView>
     </View>
   );
 }
@@ -361,4 +372,20 @@ const styles = StyleSheet.create({
   },
   labelText: { color: pastel.ink, fontWeight: '900', fontSize: 13.5 },
   labelStem: { position: 'absolute', bottom: -6, width: 2, height: 8, backgroundColor: 'rgba(255,255,255,0.92)' },
+
+  gardenHud: { position: 'absolute', bottom: 0, right: 0, paddingHorizontal: 20, paddingBottom: 18, alignItems: 'flex-end' },
+  gardenBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: rad.pill,
+    backgroundColor: pastel.mintDeep,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.85)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 9,
+  },
+  gardenBtnText: { color: pastel.white, fontWeight: '900', fontSize: 15 },
 });

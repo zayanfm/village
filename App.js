@@ -21,6 +21,7 @@ import RootNavigator from './src/navigation/RootNavigator';
 import YouthNavigator from './src/navigation/YouthNavigator';
 import { VolatileTranscriptProvider } from './src/context/VolatileTranscriptContext';
 import { YouthSessionProvider } from './src/context/YouthSessionContext';
+import { FarmProvider } from './src/context/FarmContext';
 import { palette } from './src/theme/theme';
 
 const navTheme = {
@@ -34,11 +35,13 @@ export default function App() {
       <SafeAreaProvider>
         <VolatileTranscriptProvider>
           <YouthSessionProvider>
-            <NavigationContainer theme={navTheme}>
-              <StatusBar style="light" />
-              {/* Worker/volunteer side. For youth preview use: <YouthNavigator /> */}
-              <RootNavigator />
-            </NavigationContainer>
+            <FarmProvider>
+              <NavigationContainer theme={navTheme}>
+                <StatusBar style="light" />
+                {/* Worker/volunteer side. For youth preview use: <YouthNavigator /> */}
+                <RootNavigator />
+              </NavigationContainer>
+            </FarmProvider>
           </YouthSessionProvider>
         </VolatileTranscriptProvider>
       </SafeAreaProvider>
